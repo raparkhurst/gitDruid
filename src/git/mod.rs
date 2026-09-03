@@ -5,6 +5,7 @@
 //! across calls, which keeps the types `Send` and lets the UI run every
 //! operation on a background thread without sharing state.
 
+mod amend;
 mod commit;
 mod conflict;
 mod detail;
@@ -18,6 +19,7 @@ mod stage;
 mod status;
 mod worktree;
 
+pub use amend::{amend, head_message};
 pub use commit::commit;
 pub use conflict::{Conflict, Region, Side as ConflictSide, conflict, mark_resolved, resolve, take};
 pub use detail::{ChangedFile, CommitDetail, commit_detail};

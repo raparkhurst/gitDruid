@@ -76,6 +76,8 @@ tab.
   said, with "use ours", "use theirs" or "use both" against each place they
   disagree, or one whole side taken at a time. Marking a file resolved refuses
   while conflict markers are still in it.
+- Amends the last commit, keeping its author and its parents, and says so when
+  the commit is already on the remote and amending it will need a force push.
 - Writes the commit, refusing empty messages, empty commits and unresolved
   conflicts — and finishes an open merge, writing the commit with both parents.
 - Aborts a half-finished merge, cherry-pick or revert, from beside the words
@@ -102,7 +104,7 @@ tab.
 - Follows changes it did not make. Editing a file, or running `git add` in a
   terminal, shows up on its own within a couple of seconds.
 
-Not there yet: amending, stashing, resetting, rebasing, cloning, managing
+Not there yet: stashing, resetting, rebasing, cloning, managing
 remotes, cherry-picking or reverting a merge commit, and staging individual
 lines within a hunk.
 
@@ -117,6 +119,7 @@ src/
     commit.rs   writing the index out as a commit
     history.rs  the commit walk, and which lane each commit is drawn in
     refs.rs     listing branches and tags, and the operations on them
+    amend.rs    replacing the last commit
     conflict.rs reading and settling a conflicted file
     merge.rs    merging a branch into the one HEAD is on
     pick.rs     cherry-picking and reverting, and aborting either

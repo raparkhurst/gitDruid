@@ -209,7 +209,12 @@ fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
     let staged = repo.snapshot.staged.len();
     let has_message = !repo.message.text().trim().is_empty();
 
-    let ready = !busy && staged > 0 && has_message && repo.snapshot.pending_operation.is_none();
+    // Amending with nothing staged is the ordinary way to fix a message, so
+    // the usual "something has to be staged" rule does not apply to it.
+    let ready = !busy
+        && has_message
+        && (repo.amending || staged > 0)
+        && repo.snapshot.pending_operation.is_none();
 
     let editor = text_editor(&repo.message)
         .placeholder("Commit message")
@@ -219,19 +224,50 @@ fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
         .style(style::editor)
         .on_action(Message::EditMessage);
 
-    let summary = match staged {
-        0 => "Nothing staged".to_owned(),
-        1 => "1 file staged".to_owned(),
-        count => format!("{count} files staged"),
+    let summary = match (repo.amending, staged) {
+        (true, 0) => "Replacing the last commit".to_owned(),
+        (true, 1) => "Replacing the last commit, with 1 more file".to_owned(),
+        (true, count) => format!("Replacing the last commit, with {count} more files"),
+        (false, 0) => "Nothing staged".to_owned(),
+        (false, 1) => "1 file staged".to_owned(),
+        (false, count) => format!("{count} files staged"),
     };
 
-    let action = button(text("Commit").size(12))
+    let amend = button(text("Amend").size(11))
+        .padding([6, 10])
+        .style(style::option(repo.amending))
+        .on_press_maybe((!busy).then_some(Message::ToggleAmend));
+
+    let action = button(text(if repo.amending { "Amend" } else { "Commit" }).size(12))
         .padding([6, 16])
         .style(style::primary)
         .on_press_maybe(ready.then_some(Message::Commit));
 
-    column![
-        container(editor).padding([8, 10]),
+    let mut lines = column![container(editor).padding([8, 10])].spacing(8);
+
+    // Amending something the remote already has means the next push will be
+    // refused, and that is better said before than discovered after.
+    if repo.amending
+        && let Some(tracking) = &repo.refs.tracking
+        && tracking.upstream.is_some()
+        && tracking.ahead == 0
+    {
+        lines = lines.push(
+            container(
+                text(format!(
+                    "This commit is already on {}. Amending it will need a force push.",
+                    tracking.destination()
+                ))
+                .size(10)
+                .style(|theme: &Theme| text::Style {
+                    color: Some(theme.extended_palette().warning.base.color),
+                }),
+            )
+            .padding([0, 10]),
+        );
+    }
+
+    lines.push(
         container(
             row![
                 text(summary)
@@ -240,13 +276,14 @@ fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
                     .style(|theme: &Theme| text::Style {
                         color: Some(style::muted(theme))
                     }),
+                amend,
                 action,
             ]
-            .spacing(8)
+            .spacing(6)
             .align_y(Center)
         )
         .padding([0, 10]),
-    ]
+    )
     .spacing(8)
     .padding(Padding::default().bottom(10))
     .width(Fill)

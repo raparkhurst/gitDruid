@@ -448,3 +448,128 @@ fn aborting_puts_a_half_done_apply_back() {
     );
     assert!(git::snapshot(path).unwrap().unstaged.is_empty());
 }
+
+#[test]
+fn amending_replaces_the_last_commit_rather_than_adding_one() {
+    let dir = repo();
+    let path = dir.path();
+
+    let before = git_cli(path, &["rev-parse", "HEAD"]).trim().to_owned();
+    let count = |path: &Path| git_cli(path, &["rev-list", "--count", "HEAD"]).trim().to_owned();
+
+    assert_eq!(count(path), "1");
+    assert_eq!(git::head_message(path).unwrap(), "base");
+
+    let summary = git::amend(path, "a better message").unwrap();
+    assert!(summary.starts_with("Amended"), "unexpected: {summary}");
+
+    assert_eq!(count(path), "1", "the branch must not grow");
+    assert_eq!(git_cli(path, &["log", "-1", "--format=%s"]).trim(), "a better message");
+    assert_ne!(
+        git_cli(path, &["rev-parse", "HEAD"]).trim(),
+        before,
+        "it is a new commit in the old one's place"
+    );
+}
+
+#[test]
+fn amending_takes_whatever_is_staged_with_it() {
+    let dir = repo();
+    let path = dir.path();
+
+    std::fs::write(path.join("kept.txt"), "one\ntwo\nthree\nforgotten\n").unwrap();
+    git_cli(path, &["add", "kept.txt"]);
+
+    git::amend(path, "base, with the bit I forgot").unwrap();
+
+    assert_eq!(git_cli(path, &["rev-list", "--count", "HEAD"]).trim(), "1");
+    assert!(
+        git_cli(path, &["show", "--format=", "--name-only", "HEAD"]).contains("kept.txt")
+    );
+    assert!(git::snapshot(path).unwrap().staged.is_empty());
+}
+
+#[test]
+fn amending_keeps_the_original_author_and_the_parents() {
+    let dir = repo();
+    let path = dir.path();
+
+    // A second commit by someone else, so there is a parent to keep.
+    std::fs::write(path.join("kept.txt"), "one\ntwo\n").unwrap();
+
+    let output = Command::new("git")
+        .args(["commit", "--quiet", "-am", "theirs"])
+        .current_dir(path)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", path)
+        .env("GIT_AUTHOR_NAME", "Someone Else")
+        .env("GIT_AUTHOR_EMAIL", "else@example.invalid")
+        .env("GIT_COMMITTER_NAME", "gitDruid Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let parent = git_cli(path, &["rev-parse", "HEAD~1"]).trim().to_owned();
+
+    git::amend(path, "reworded").unwrap();
+
+    assert_eq!(
+        git_cli(path, &["log", "-1", "--format=%an"]).trim(),
+        "Someone Else",
+        "the author belongs to the commit, not to whoever reworded it"
+    );
+    assert_eq!(
+        git_cli(path, &["rev-parse", "HEAD~1"]).trim(),
+        parent,
+        "and it hangs where it did"
+    );
+}
+
+#[test]
+fn amending_needs_a_commit_a_message_and_a_settled_repository() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path();
+
+    git_cli(path, &["init", "--initial-branch=main", "--quiet"]);
+    git_cli(path, &["config", "user.name", "gitDruid Test"]);
+    git_cli(path, &["config", "user.email", "test@example.invalid"]);
+
+    // Nothing to amend yet.
+    let error = git::amend(path, "anything").unwrap_err();
+    assert!(error.to_string().contains("no commit to amend"), "{error}");
+    assert!(git::head_message(path).is_err());
+
+    std::fs::write(path.join("f"), "x\n").unwrap();
+    git_cli(path, &["add", "-A"]);
+    git_cli(path, &["commit", "--quiet", "-m", "base"]);
+
+    let error = git::amend(path, "   ").unwrap_err();
+    assert!(error.to_string().contains("needs a message"), "{error}");
+
+    // And not while something else is half-done.
+    git_cli(path, &["checkout", "--quiet", "-b", "other"]);
+    std::fs::write(path.join("f"), "theirs\n").unwrap();
+    git_cli(path, &["commit", "--quiet", "-am", "theirs"]);
+    git_cli(path, &["checkout", "--quiet", "main"]);
+    std::fs::write(path.join("f"), "ours\n").unwrap();
+    git_cli(path, &["commit", "--quiet", "-am", "ours"]);
+    git::merge_branch(path, "other").unwrap();
+
+    let error = git::amend(path, "during a merge").unwrap_err();
+    assert!(error.to_string().contains("mid-operation"), "{error}");
+}
+
+#[test]
+fn a_root_commit_can_be_amended() {
+    let dir = repo();
+    let path = dir.path();
+
+    git::amend(path, "the first commit, reworded").unwrap();
+
+    assert_eq!(git_cli(path, &["rev-list", "--count", "HEAD"]).trim(), "1");
+    assert_eq!(
+        git_cli(path, &["log", "-1", "--format=%s"]).trim(),
+        "the first commit, reworded"
+    );
+}

@@ -113,6 +113,11 @@ pub struct Repo {
     pub detail_file: Option<git::ChangedFile>,
     pub detail_diff: Option<git::FileDiff>,
     pub message: text_editor::Content,
+    /// True while the next commit would replace the last one.
+    pub amending: bool,
+    /// What was in the message box before amending borrowed it, so that
+    /// turning amend off gives it back rather than losing it.
+    draft: Option<String>,
     /// The global layer plus this repository's `.gitdruid`.
     pub settings: Settings,
     /// The ref the sidebar's action bar applies to.
@@ -169,6 +174,8 @@ impl Repo {
             detail_file: None,
             detail_diff: None,
             message: text_editor::Content::new(),
+            amending: false,
+            draft: None,
             selected_ref: None,
             prompt: None,
         }
@@ -396,6 +403,8 @@ pub enum Message {
     PromptSubmit,
     PromptCancel,
     EditMessage(text_editor::Action),
+    /// Switch between adding a commit and replacing the last one.
+    ToggleAmend,
     Commit,
 
     // Results, each naming the repository it was read for.
@@ -513,18 +522,13 @@ pub fn boot() -> (GitDruid, Task<Message>) {
     (state, Task::batch(tasks))
 }
 
-pub fn title(state: &GitDruid, window: window::Id) -> String {
-    // The splash has no title bar to show one, but the window manager and the
-    // accessibility tree still ask, and answering with the repository name
-    // would be a lie about what that window is.
-    if state.splash == Some(window) {
-        return "gitDruid".to_owned();
-    }
-
-    match state.active() {
-        Some(repo) => format!("{} — gitDruid", repo.name()),
-        None => "gitDruid".to_owned(),
-    }
+/// The same for every window.
+///
+/// The repository used to be in it, from when there was one window and one
+/// repository. There are tabs for that now, and they say which is which better
+/// than a title bar that only ever names one of them.
+pub fn title(_state: &GitDruid, _window: window::Id) -> String {
+    "gitDruid".to_owned()
 }
 
 pub fn theme(state: &GitDruid, _window: window::Id) -> Theme {
@@ -1375,6 +1379,35 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             Task::none()
         }
 
+        Message::ToggleAmend => {
+            let Some(repo) = state.active_mut() else {
+                return Task::none();
+            };
+
+            if repo.amending {
+                repo.amending = false;
+
+                // Give back whatever was being written before.
+                let draft = repo.draft.take().unwrap_or_default();
+                repo.message = text_editor::Content::with_text(&draft);
+
+                return Task::none();
+            }
+
+            let head = git::head_message(&repo.snapshot.path);
+
+            match head {
+                Ok(message) => {
+                    repo.draft = Some(repo.message.text());
+                    repo.message = text_editor::Content::with_text(&message);
+                    repo.amending = true;
+
+                    Task::none()
+                }
+                Err(error) => state.report(Err(error)),
+            }
+        }
+
         Message::Commit => {
             let Some(repo) = state.active_mut() else {
                 return Task::none();
@@ -1382,24 +1415,36 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
 
             let path = repo.snapshot.path.clone();
             let message = repo.message.text();
+            let amending = repo.amending;
 
             repo.busy = true;
 
             let wanted = path.clone();
 
             Task::perform(
-                async move { git::commit(&path, &message) },
+                async move {
+                    match amending {
+                        true => git::amend(&path, &message),
+                        false => git::commit(&path, &message),
+                    }
+                },
                 move |result| Message::Committed(wanted.clone(), result),
             )
         }
 
-        Message::Committed(path, Ok(id)) => {
+        Message::Committed(path, Ok(summary)) => {
             if let Some(repo) = state.repo_mut(&path) {
                 repo.message = text_editor::Content::new();
+                repo.amending = false;
+                repo.draft = None;
             }
 
             state.notice = Some(Notice {
-                text: format!("Committed {id}"),
+                // Committing reports an id; amending reports itself.
+                text: match summary.starts_with("Amended") {
+                    true => summary,
+                    false => format!("Committed {summary}"),
+                },
                 is_error: false,
             });
 
