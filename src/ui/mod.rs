@@ -19,18 +19,17 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill, Padding, Theme};
 
-use crate::app::{Focus, GitDruid, Message, Prompt, PromptKind, Repo};
+use crate::app::{Focus, GitDruid, Message, Prompt, PromptKind, Repo, Splash};
 
 /// Longest repository name a tab shows before it is cut.
 const TAB_NAME: usize = 20;
 
 pub fn view(state: &GitDruid) -> Element<'_, Message> {
-    // Before anything else is built, not over the top of it. The application
-    // is not worth showing half-assembled, which is what a splash is for — and
-    // building a five-hundred-row graph behind one nobody can see through is
-    // work done for no one.
-    if state.splash {
-        return splash::view();
+    // Nothing else is built while the splash is the whole window: assembling a
+    // five-hundred-row graph behind something nobody can see through is work
+    // done for no one.
+    if state.splash == Some(Splash::Alone) {
+        return splash::view(true);
     }
 
     let body: Element<'_, Message> = match state.active() {
@@ -48,6 +47,12 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
     ]
     .width(Fill)
     .height(Fill);
+
+    // The second phase: the application is there, with the splash still over
+    // it, on its way out.
+    if state.splash == Some(Splash::Over) {
+        return stack![screen, opaque(splash::view(false))].into();
+    }
 
     // `opaque` stops clicks reaching the window behind, which is what makes
     // this a dialog rather than a panel drawn on top of a live app.

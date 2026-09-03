@@ -1,15 +1,16 @@
 //! The splash screen.
 //!
-//! Shown over the window rather than in a window of its own: a second window
-//! costs a second entry in the dock and a flicker as it hands over, and buys
-//! nothing here. It dismisses itself after a moment, or on the first click,
-//! and can be turned off — a splash that cannot be got past is a splash that
-//! gets resented.
+//! Not a window of its own: a second window costs a second entry in the dock
+//! and a flicker as it hands over, and buys nothing here. It runs in two
+//! phases instead — on its own with nothing drawn behind it, then over the
+//! application once that is worth showing — and dismisses itself, or goes on
+//! the first click. Settings turns it off; a splash that cannot be got past is
+//! a splash that gets resented.
 
 use std::time::Duration;
 
-use iced::widget::{column, container, image, mouse_area, rule, stack, text};
-use iced::{Color, Element, Fill, Padding, Theme};
+use iced::widget::{container, image, mouse_area};
+use iced::{Element, Fill};
 
 use crate::app::Message;
 use crate::ui::style;
@@ -18,81 +19,54 @@ use crate::ui::style;
 /// look for a file beside itself.
 const IMAGE: &[u8] = include_bytes!("../../assets/splash.jpg");
 
-/// How long it stays without being asked to go.
+/// How long the splash is the only thing on screen.
 ///
 /// Counted from the window opening rather than from startup: creating the
 /// window and starting the graphics backend takes a second or more on a cold
-/// run, and a splash whose clock began before any of that had happened was
-/// mostly over by the time it appeared.
-pub const DURATION: Duration = Duration::from_millis(3500);
+/// run, and a clock that began before any of that had happened was mostly
+/// spent by the time anything appeared.
+pub const ALONE: Duration = Duration::from_secs(10);
+
+/// How long it stays once the application is drawn behind it.
+pub const OVER: Duration = Duration::from_secs(3);
 
 /// The card's size. The artwork is 1.6:1 and is drawn to fill this exactly, so
 /// the two have to agree or it will be letterboxed.
 const WIDTH: f32 = 720.0;
 const HEIGHT: f32 = 450.0;
 
-/// The left third of the artwork is empty mist, which is where the text goes.
-/// It is light there, so the text is dark — the usual pale-on-dark would
-/// disappear into it.
-const INK: Color = Color::from_rgb(0.09, 0.08, 0.07);
-const INK_SOFT: Color = Color::from_rgba(0.09, 0.08, 0.07, 0.72);
-
-pub fn view() -> Element<'static, Message> {
+/// The splash, on its own or over the window.
+///
+/// `alone` decides what surrounds the card: an opaque ground, so there is
+/// nothing behind it at all, or a scrim, so the application shows through
+/// dimmed.
+pub fn view(alone: bool) -> Element<'static, Message> {
     let art = image(image::Handle::from_bytes(IMAGE))
         .width(WIDTH)
         .height(HEIGHT)
         .content_fit(iced::ContentFit::Cover);
 
-    let words = container(
-        column![
-            text("gitDruid").size(46).style(ink),
-            container(rule::horizontal(1)).width(150).padding(
-                Padding::default().top(6).bottom(10)
-            ),
-            text(concat!("version ", env!("CARGO_PKG_VERSION")))
-                .size(13)
-                .style(soft),
-            text("Robert Parkhurst").size(13).style(soft),
-        ]
-        .spacing(2),
-    )
-    .padding(Padding::default().left(52))
-    .width(Fill)
-    .height(Fill)
-    .align_y(iced::Center);
-
-    let card = container(stack![art, words])
+    let card = container(art)
         .width(WIDTH)
         .height(HEIGHT)
         .style(style::dialog);
 
-    // Nothing of the application is drawn behind it. An overlay over a window
-    // that is still filling itself in flickers as the tabs arrive, and the
-    // point of a splash is to be what is on screen while that happens.
-    //
-    // Anywhere on it dismisses it, including the artwork: someone who wants to
-    // get on with it should not have to find a button.
+    // Anywhere on it dismisses it: someone who wants to get on with it should
+    // not have to find a button.
     mouse_area(
         container(card)
             .center_x(Fill)
             .center_y(Fill)
             .width(Fill)
             .height(Fill)
-            .style(style::canvas),
+            .style(match alone {
+                true => style::canvas,
+                false => style::scrim,
+            }),
     )
     .on_press(Message::DismissSplash)
     .on_right_press(Message::DismissSplash)
     .into()
-}
-
-fn ink(_theme: &Theme) -> text::Style {
-    text::Style { color: Some(INK) }
-}
-
-fn soft(_theme: &Theme) -> text::Style {
-    text::Style {
-        color: Some(INK_SOFT),
-    }
 }
 
 #[cfg(test)]

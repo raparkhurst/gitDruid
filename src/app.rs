@@ -20,6 +20,7 @@ use iced::widget::text_editor;
 use iced::{Event, Point, Size, Subscription, Task, Theme, keyboard, mouse, window};
 
 use crate::git::{self, FileEntry, Side};
+use crate::ui::splash;
 use crate::settings::{self, Scope, Settings};
 
 pub struct GitDruid {
@@ -41,8 +42,8 @@ pub struct GitDruid {
     /// is open. Each open repository carries its own resolved copy.
     pub settings: Settings,
     pub settings_open: bool,
-    /// True while the splash screen is up, which is only ever at startup.
-    pub splash: bool,
+    /// The splash, while it is up. Only ever at startup.
+    pub splash: Option<Splash>,
     /// When the process started, used only to give up on a splash that the
     /// window never told us had appeared.
     started: Instant,
@@ -68,8 +69,9 @@ pub struct GitDruid {
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// How long to leave a splash that nothing has dismissed before assuming the
-/// window never announced itself and taking it down anyway.
-const STUCK_SPLASH: Duration = Duration::from_secs(15);
+/// window never announced itself and taking it down anyway. Comfortably longer
+/// than the two phases together, or it would cut them short.
+const STUCK_SPLASH: Duration = Duration::from_secs(40);
 
 pub struct Repo {
     pub snapshot: git::Snapshot,
@@ -210,6 +212,15 @@ impl Repo {
     }
 }
 
+/// Which of the splash's two phases is running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Splash {
+    /// Nothing else is drawn: the window is the splash.
+    Alone,
+    /// The application is drawn behind it, dimmed, on its way in.
+    Over,
+}
+
 /// An open context menu, and what it is about.
 #[derive(Debug, Clone)]
 pub struct Menu {
@@ -344,6 +355,8 @@ pub enum Message {
     CloseSettings,
     /// The window is on screen, which is when the splash's clock starts.
     WindowOpened,
+    /// Time to draw the application behind the splash.
+    SplashOver,
     DismissSplash,
     CursorMoved(Point),
     ModifiersChanged(keyboard::Modifiers),
@@ -420,7 +433,7 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         .and_then(crate::ui::theme::by_name)
         .unwrap_or_else(crate::ui::theme::default);
 
-    let splash = settings.splash();
+    let splash = settings.splash().then_some(Splash::Alone);
 
     let mut state = GitDruid {
         repos: Vec::new(),
@@ -546,6 +559,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
         Message::CursorMoved(_)
             | Message::ModifiersChanged(_)
             | Message::DismissSplash
+            | Message::SplashOver
             | Message::WindowOpened
             | Message::WindowResized(_)
             | Message::OpenMenu(_)
@@ -927,21 +941,23 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             )
         }
 
-        Message::WindowOpened => {
-            if !state.splash {
+        Message::WindowOpened => match state.splash {
+            Some(Splash::Alone) => after(splash::ALONE, Message::SplashOver),
+            _ => Task::none(),
+        },
+
+        Message::SplashOver => {
+            if state.splash.is_none() {
                 return Task::none();
             }
 
-            Task::perform(
-                async {
-                    std::thread::sleep(crate::ui::splash::DURATION);
-                },
-                |()| Message::DismissSplash,
-            )
+            state.splash = Some(Splash::Over);
+
+            after(splash::OVER, Message::DismissSplash)
         }
 
         Message::DismissSplash => {
-            state.splash = false;
+            state.splash = None;
             Task::none()
         }
 
@@ -1250,8 +1266,8 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
         Message::Poll => {
             // If the window never reported opening, the splash would sit there
             // until it was clicked. This is the way out of that.
-            if state.splash && state.started.elapsed() > STUCK_SPLASH {
-                state.splash = false;
+            if state.splash.is_some() && state.started.elapsed() > STUCK_SPLASH {
+                state.splash = None;
             }
 
             state.poll()
@@ -1981,6 +1997,21 @@ fn diff_task(path: PathBuf, entry: FileEntry) -> Task<Message> {
 }
 
 /// Asks for a private key, starting where ssh keeps them.
+/// A message, later.
+///
+/// The sleep happens on the task pool rather than on a timer, because iced's
+/// timers want an async runtime this application does not otherwise need. One
+/// pool thread parked for a few seconds at startup costs nothing: the
+/// repositories are being read on the others.
+fn after(delay: Duration, message: Message) -> Task<Message> {
+    Task::perform(
+        async move {
+            std::thread::sleep(delay);
+        },
+        move |()| message.clone(),
+    )
+}
+
 async fn pick_key() -> Option<PathBuf> {
     let mut dialog = rfd::AsyncFileDialog::new().set_title("Choose an SSH key");
 
