@@ -72,8 +72,14 @@ tab.
   foot of the list.
 - Shows a file's diff with line numbers, and stages or unstages it whole or one
   hunk at a time.
+- Settles conflicts. A conflicted file opens in a pane showing what both sides
+  said, with "use ours", "use theirs" or "use both" against each place they
+  disagree, or one whole side taken at a time. Marking a file resolved refuses
+  while conflict markers are still in it.
 - Writes the commit, refusing empty messages, empty commits and unresolved
   conflicts — and finishes an open merge, writing the commit with both parents.
+- Aborts a half-finished merge, cherry-pick or revert, from beside the words
+  saying one is in progress.
 - Shows the branch and how far ahead of and behind its upstream it is. Which
   checkout a tab is opens on hovering it, and in the settings dialog under
   "This repository".
@@ -96,8 +102,9 @@ tab.
 - Follows changes it did not make. Editing a file, or running `git add` in a
   terminal, shows up on its own within a couple of seconds.
 
-Not there yet: rebasing, cloning, managing remotes, cherry-picking or reverting
-a merge commit, and staging individual lines within a hunk.
+Not there yet: amending, stashing, resetting, rebasing, cloning, managing
+remotes, cherry-picking or reverting a merge commit, and staging individual
+lines within a hunk.
 
 ## How it is put together
 
@@ -110,6 +117,7 @@ src/
     commit.rs   writing the index out as a commit
     history.rs  the commit walk, and which lane each commit is drawn in
     refs.rs     listing branches and tags, and the operations on them
+    conflict.rs reading and settling a conflicted file
     merge.rs    merging a branch into the one HEAD is on
     pick.rs     cherry-picking and reverting, and aborting either
     worktree.rs ignoring a file, and discarding changes to one
@@ -123,6 +131,7 @@ src/
     graph.rs    the centre column: the commit graph
     menu.rs     the right-click menu, and what each row offers
     commit.rs   the centre column, when a commit is selected
+    conflict.rs the centre column, when the selected file is conflicted
     diff.rs     the centre column, for a file from the tree or from a commit
     files.rs    the right column: the two file lists and the commit box
     settings.rs the settings dialog
@@ -268,6 +277,23 @@ asserts what each kind of row offers against real repositories.
 Cherry-picking and reverting are the same shape as a merge — apply, then either
 commit or leave the conflicts — so both finish through the ordinary commit
 button, and `abort` puts a half-done one back.
+
+### Settling a conflict
+
+A conflict lives in two places at once. The index holds up to three stages of
+the file — the ancestor, ours, theirs — and the working tree holds one file
+with markers in it. Resolving means agreeing on one content and putting it in
+both: the text goes to the working tree, and the same text goes into the index
+at stage zero, which is what makes the conflict go away.
+
+The regions come from parsing the markers rather than from re-merging the
+stages, because the file on disk is what the user is looking at and may already
+have edited by hand; re-merging would quietly throw that away. Taking a whole
+side is the other way round — it reads the stage git recorded, so it is right
+even after the working tree has been scribbled on.
+
+Marking a file resolved refuses while any marker is still in it. Committing
+conflict markers is the mistake nobody notices until it has been pushed.
 
 ### Talking to a remote
 

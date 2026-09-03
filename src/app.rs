@@ -105,6 +105,8 @@ pub struct Repo {
     pub anchor: Option<PathBuf>,
     /// The diff for `selection`. `None` while one is being read.
     pub diff: Option<git::FileDiff>,
+    /// The conflict for `selection`, when the selected file has one.
+    pub conflict: Option<git::Conflict>,
     /// The commit the graph selection points at. `None` while one is read.
     pub detail: Option<git::CommitDetail>,
     /// The file picked out of `detail`, and its diff within that commit.
@@ -130,6 +132,8 @@ pub enum Focus {
     Commit,
     /// One file as that commit changed it, read-only.
     CommitFile,
+    /// A conflicted file, being settled.
+    Conflict,
 }
 
 impl Repo {
@@ -160,6 +164,7 @@ impl Repo {
             marked: BTreeSet::new(),
             anchor: None,
             diff: None,
+            conflict: None,
             detail: None,
             detail_file: None,
             detail_diff: None,
@@ -299,6 +304,8 @@ pub enum PromptKind {
     Discard {
         side: Side,
     },
+    /// Abandoning a half-finished merge, cherry-pick or revert.
+    Abort,
     /// Merge a workflow branch back into the branch it belongs to.
     Finish,
     /// Pull and push are confirmed for opposite reasons: a pull can leave a
@@ -396,6 +403,13 @@ pub enum Message {
     RefsRead(PathBuf, Result<git::Refs, git::Error>),
     HistoryRead(PathBuf, Result<git::History, git::Error>),
     Diffed(PathBuf, Selection, Result<git::FileDiff, git::Error>),
+    Conflicted(PathBuf, PathBuf, Result<git::Conflict, git::Error>),
+    /// Settle one disputed region of the selected file.
+    Resolve(usize, git::ConflictSide),
+    /// Take one whole side of a conflicted file.
+    TakeSide(PathBuf, git::ConflictSide),
+    /// Stage a file whose conflicts have been settled.
+    MarkResolved(PathBuf),
     Detailed(PathBuf, String, Result<git::CommitDetail, git::Error>),
     CommitFileDiffed(PathBuf, String, PathBuf, Result<git::FileDiff, git::Error>),
     /// A staging or ref action finished; `Ok` carries what to report.
@@ -599,6 +613,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             | Message::RefsRead(..)
             | Message::HistoryRead(..)
             | Message::Diffed(..)
+            | Message::Conflicted(..)
             | Message::Detailed(..)
             | Message::CommitFileDiffed(..)
     );
@@ -755,10 +770,20 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             repo.tab = side;
             repo.mark(side, &path, modifiers);
 
-            // Whatever else a click does to the selection, the diff shows the
+            // Whatever else a click does to the selection, the pane shows the
             // file that was clicked: that is the one the pointer is on.
             repo.selection = Some(Selection { side, path });
             repo.diff = None;
+            repo.conflict = None;
+
+            // A conflicted file has no diff worth showing — it has two of them
+            // — so it gets the pane that can settle it instead.
+            if entry.change == git::Change::Conflicted {
+                repo.focus = Focus::Conflict;
+
+                return conflict_task(repo.snapshot.path.clone(), entry.path);
+            }
+
             repo.focus = Focus::File;
 
             diff_task(repo.snapshot.path.clone(), entry)
@@ -786,6 +811,83 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
                     state.report(Err(error))
                 }
             }
+        }
+
+        Message::Conflicted(repo_path, path, result) => {
+            let Some(repo) = state.repo_mut(&repo_path) else {
+                return Task::none();
+            };
+
+            // A slower read for a file the user has moved on from must not
+            // replace what is on screen.
+            if repo.selection.as_ref().is_none_or(|selection| selection.path != path) {
+                return Task::none();
+            }
+
+            match result {
+                Ok(conflict) => {
+                    repo.conflict = Some(conflict);
+                    Task::none()
+                }
+                Err(error) => {
+                    repo.focus = Focus::History;
+                    state.report(Err(error))
+                }
+            }
+        }
+
+        Message::Resolve(index, side) => {
+            let Some(repo) = state.active_mut() else {
+                return Task::none();
+            };
+
+            let Some(conflict) = &repo.conflict else {
+                return Task::none();
+            };
+
+            let path = repo.snapshot.path.clone();
+            let file = conflict.path.clone();
+
+            repo.busy = true;
+
+            let wanted = path.clone();
+
+            Task::perform(
+                async move { git::resolve(&path, &file, index, side) },
+                move |result| Message::Applied(wanted.clone(), result),
+            )
+        }
+
+        Message::TakeSide(file, side) => {
+            let Some(repo) = state.active_mut() else {
+                return Task::none();
+            };
+
+            let path = repo.snapshot.path.clone();
+            repo.busy = true;
+
+            let wanted = path.clone();
+
+            Task::perform(
+                async move { git::take(&path, &file, side) },
+                move |result| Message::Applied(wanted.clone(), result),
+            )
+        }
+
+        Message::MarkResolved(file) => {
+            let Some(repo) = state.active_mut() else {
+                return Task::none();
+            };
+
+            let path = repo.snapshot.path.clone();
+            repo.busy = true;
+
+            let wanted = path.clone();
+
+            Task::perform(
+                async move { git::mark_resolved(&path, &file) },
+                move |result| Message::Applied(wanted.clone(), result),
+            )
         }
 
         Message::ShowHistory => {
@@ -1506,6 +1608,7 @@ impl GitDruid {
         if !still_valid {
             repo.selection = None;
             repo.diff = None;
+            repo.conflict = None;
         }
 
         if repo.selection.is_none() {
@@ -1523,9 +1626,9 @@ impl GitDruid {
         }
 
         let centre = match repo.focus {
-            // Always re-read the diff: staging a hunk changes what the rest of
-            // the file's diff looks like.
-            Focus::File => select_task(repo),
+            // Always re-read: settling one region changes the rest of the
+            // file, and staging a hunk changes the rest of the diff.
+            Focus::File | Focus::Conflict => select_task(repo),
             // A commit's diff cannot change, so nothing behind `CommitFile`
             // needs re-reading; the detail is refreshed for its badges.
             Focus::Commit | Focus::CommitFile => match &repo.detail {
@@ -1733,6 +1836,7 @@ impl GitDruid {
                     reply,
                 )
             }
+            PromptKind::Abort => Task::perform(async move { git::abort(&path) }, reply),
             PromptKind::Pull => {
                 Task::perform(async move { git::pull(&path, &credentials) }, reply)
             }
@@ -1969,7 +2073,8 @@ fn next_selection(snapshot: &git::Snapshot, side: Side) -> Option<Selection> {
     })
 }
 
-/// Reads the diff for whatever `repo.selection` now points at.
+/// Reads whatever `repo.selection` now points at, which is a conflict for a
+/// conflicted file and a diff for anything else.
 fn select_task(repo: &Repo) -> Task<Message> {
     let Some(selection) = &repo.selection else {
         return Task::none();
@@ -1979,7 +2084,21 @@ fn select_task(repo: &Repo) -> Task<Message> {
         return Task::none();
     };
 
+    if entry.change == git::Change::Conflicted {
+        return conflict_task(repo.snapshot.path.clone(), entry.path);
+    }
+
     diff_task(repo.snapshot.path.clone(), entry)
+}
+
+fn conflict_task(repo: PathBuf, path: PathBuf) -> Task<Message> {
+    let wanted = (repo.clone(), path.clone());
+
+    Task::perform(async move { git::conflict(&repo, &path) }, move |result| {
+        let (repo, path) = wanted.clone();
+
+        Message::Conflicted(repo, path, result)
+    })
 }
 
 fn describe(side: Side, entries: &[FileEntry]) -> String {

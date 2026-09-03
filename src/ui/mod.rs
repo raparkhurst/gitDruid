@@ -1,6 +1,7 @@
 //! The view layer. `view` is the only entry point the app calls.
 
 pub mod commit;
+pub mod conflict;
 pub mod diff;
 pub mod files;
 pub mod graph;
@@ -113,12 +114,28 @@ fn toolbar(state: &GitDruid) -> Element<'_, Message> {
             .spacing(10)
             .align_y(Center);
 
+        // A half-finished operation is the one state the application can get
+        // into and, until now, not out of. The way out belongs next to the
+        // words saying you are in it.
         if let Some(operation) = &repo.snapshot.pending_operation {
             details = details.push(text(format!("{operation} in progress")).size(12).style(
                 |theme: &Theme| text::Style {
                     color: Some(theme.extended_palette().danger.base.color),
                 },
             ));
+
+            details = details.push(
+                button(text("Abort").size(11))
+                    .padding([3, 8])
+                    .style(style::danger)
+                    .on_press_maybe(
+                        (!repo.busy).then_some(Message::Ask(
+                            PromptKind::Abort,
+                            operation.clone(),
+                            None,
+                        )),
+                    ),
+            );
         }
 
         details = details.push(branch_label(repo));
@@ -398,7 +415,10 @@ fn prompt_bar<'a>(
 
     let destructive = matches!(
         prompt.kind,
-        PromptKind::DeleteBranch { .. } | PromptKind::DeleteTag | PromptKind::Discard { .. }
+        PromptKind::DeleteBranch { .. }
+            | PromptKind::DeleteTag
+            | PromptKind::Discard { .. }
+            | PromptKind::Abort
     );
 
     let confirm = button(text(verb(prompt.kind)).size(11))
@@ -442,6 +462,11 @@ fn question(prompt: &Prompt) -> String {
         }
         PromptKind::DeleteTag => format!("Delete tag {}?", prompt.subject),
         PromptKind::Merge => format!("Merge {} into the current branch?", prompt.subject),
+        PromptKind::Abort => format!(
+            "Abort the {}? The working tree goes back to where it was, and anything resolved so \
+             far is lost.",
+            prompt.subject
+        ),
         PromptKind::Discard { .. } => match prompt.paths.len() {
             0 | 1 => format!(
                 "Discard the unstaged changes to {}? This cannot be undone.",
@@ -474,6 +499,7 @@ fn verb(kind: PromptKind) -> &'static str {
         PromptKind::DeleteTag => "Delete",
         PromptKind::Merge => "Merge",
         PromptKind::Discard { .. } => "Discard",
+        PromptKind::Abort => "Abort",
         PromptKind::Finish => "Finish",
         PromptKind::Pull => "Pull",
         PromptKind::Push => "Push",
@@ -533,6 +559,11 @@ fn centre(repo: &Repo) -> Element<'_, Message> {
             (Some(file_diff), _) => diff::view(file_diff),
             (None, Some(file)) => commit::loading_file(file),
             (None, None) => commit::loading(),
+        },
+        Focus::Conflict => match (&repo.conflict, &repo.selection) {
+            (Some(conflict), _) => conflict::view(repo, conflict),
+            (None, Some(selection)) => conflict::loading(&selection.path),
+            (None, None) => diff::placeholder("Select a file to see what changed."),
         },
         Focus::File => match &repo.diff {
             Some(file_diff) => diff::view(file_diff),

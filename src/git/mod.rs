@@ -6,6 +6,7 @@
 //! operation on a background thread without sharing state.
 
 mod commit;
+mod conflict;
 mod detail;
 mod diff;
 mod history;
@@ -18,6 +19,7 @@ mod status;
 mod worktree;
 
 pub use commit::commit;
+pub use conflict::{Conflict, Region, Side as ConflictSide, conflict, mark_resolved, resolve, take};
 pub use detail::{ChangedFile, CommitDetail, commit_detail};
 pub use diff::{Content, FileDiff, Hunk, Line, Origin, Source, commit_file_diff, file_diff};
 pub use history::{Badge, BadgeKind, Commit, Edge, History, Row, history};
