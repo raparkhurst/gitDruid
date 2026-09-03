@@ -10,6 +10,7 @@
 //! Settings turns it off — a splash that cannot be got past is a splash that
 //! gets resented.
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use iced::widget::{container, image, mouse_area};
@@ -21,6 +22,15 @@ use crate::ui::style;
 /// The artwork, carried in the binary: a packaged application has nowhere to
 /// look for a file beside itself.
 const IMAGE: &[u8] = include_bytes!("../../assets/splash.jpg");
+
+/// The handle, made once.
+///
+/// `Handle::from_bytes` stamps every handle with a fresh unique id, and the
+/// renderer caches decoded images by that id — so building one inside `view`
+/// hands the renderer a different image on every frame, and a 1440×900 JPEG is
+/// decoded and uploaded again for each of them. `view` runs on every message,
+/// including every mouse movement, and the result was a splash that flickered.
+static ARTWORK: LazyLock<image::Handle> = LazyLock::new(|| image::Handle::from_bytes(IMAGE));
 
 /// How long the splash is the only thing on screen.
 ///
@@ -53,7 +63,7 @@ pub fn window() -> window::Settings {
 }
 
 pub fn view() -> Element<'static, Message> {
-    let art = image(image::Handle::from_bytes(IMAGE))
+    let art = image(ARTWORK.clone())
         .width(Fill)
         .height(Fill)
         .content_fit(iced::ContentFit::Cover);
@@ -86,6 +96,17 @@ mod tests {
             (decoded.width(), decoded.height()),
             (1440, 900),
             "the card's proportions are built around this"
+        );
+    }
+
+    #[test]
+    fn the_artwork_is_the_same_image_every_time_it_is_drawn() {
+        // The renderer caches by handle id. Two ids means two images, which
+        // means decoding the whole JPEG again on every frame.
+        assert_eq!(
+            ARTWORK.clone().id(),
+            ARTWORK.clone().id(),
+            "the handle has to be made once, not per view"
         );
     }
 
