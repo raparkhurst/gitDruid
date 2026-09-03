@@ -76,6 +76,9 @@ tab.
   said, with "use ours", "use theirs" or "use both" against each place they
   disagree, or one whole side taken at a time. Marking a file resolved refuses
   while conflict markers are still in it.
+- Writes the message in two boxes, a summary and a description, joined the way
+  git reads them back. The summary is capped at 72 characters and the counter
+  turns amber past 50.
 - Amends the last commit, keeping its author and its parents, and says so when
   the commit is already on the remote and amending it will need a force push.
 - Writes the commit, refusing empty messages, empty commits and unresolved
@@ -280,6 +283,19 @@ asserts what each kind of row offers against real repositories.
 Cherry-picking and reverting are the same shape as a merge — apply, then either
 commit or leave the conflicts — so both finish through the ordinary commit
 button, and `abort` puts a half-done one back.
+
+### The commit message
+
+Two boxes rather than one, because a commit message is two things: a line that
+shows up everywhere, and everything that did not fit in it. They are joined
+with a blank line between them, which is what makes git read the first as the
+subject, and split back apart the same way when amending fills them in.
+
+git enforces nothing about either — a message is bytes, and the subject is
+whatever precedes the first blank line. Seventy-two characters is therefore a
+rule gitDruid is choosing rather than one it is passing on: the box stops
+taking characters there, and the counter turns amber at fifty, which is what
+`git log --oneline` and most forges show without cutting.
 
 ### Settling a conflict
 

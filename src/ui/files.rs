@@ -2,11 +2,12 @@
 
 use iced::widget::{
     Column, button, column, container, mouse_area, row, rule, scrollable, text, text_editor,
+    text_input,
 };
 use iced::{Center, Element, Fill, FillPortion, Font, Padding, Theme};
 
 use crate::app::{Message, Repo, Target};
-use crate::git::{Change, FileEntry, Side};
+use crate::git::{self, Change, FileEntry, Side};
 use crate::ui::style;
 
 pub fn view(repo: &Repo, busy: bool) -> Element<'_, Message> {
@@ -207,7 +208,7 @@ fn badge_color(theme: &Theme, change: Change) -> iced::Color {
 
 fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
     let staged = repo.snapshot.staged.len();
-    let has_message = !repo.message.text().trim().is_empty();
+    let has_message = !repo.summary.trim().is_empty();
 
     // Amending with nothing staged is the ordinary way to fix a message, so
     // the usual "something has to be staged" rule does not apply to it.
@@ -216,15 +217,47 @@ fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
         && (repo.amending || staged > 0)
         && repo.snapshot.pending_operation.is_none();
 
-    let editor = text_editor(&repo.message)
-        .placeholder("Commit message")
-        .height(96)
-        .padding(8)
+    // Two boxes, because a commit message is two things: a line that shows up
+    // everywhere, and everything that did not fit in it.
+    let length = repo.summary.chars().count();
+
+    let mut summary = text_input("Summary", &repo.summary)
         .size(13)
+        .padding(8)
+        .style(style::editor_input)
+        .on_input(Message::EditSummary);
+
+    // Enter commits, when there is something to commit.
+    if ready {
+        summary = summary.on_submit(Message::Commit);
+    }
+
+    let counter = text(format!("{length}/{}", git::SUMMARY_LIMIT))
+        .size(10)
+        .style(move |theme: &Theme| {
+            let palette = theme.extended_palette();
+
+            text::Style {
+                color: Some(match length {
+                    // git enforces nothing here, so seventy-two is a rule we
+                    // are choosing: the box stops taking characters at it, and
+                    // says so before it gets there.
+                    length if length >= git::SUMMARY_LIMIT => palette.danger.base.color,
+                    length if length > git::SUMMARY_IDEAL => palette.warning.base.color,
+                    _ => style::muted(theme),
+                }),
+            }
+        });
+
+    let editor = text_editor(&repo.message)
+        .placeholder("Description (optional)")
+        .height(78)
+        .padding(8)
+        .size(12)
         .style(style::editor)
         .on_action(Message::EditMessage);
 
-    let summary = match (repo.amending, staged) {
+    let standing = match (repo.amending, staged) {
         (true, 0) => "Replacing the last commit".to_owned(),
         (true, 1) => "Replacing the last commit, with 1 more file".to_owned(),
         (true, count) => format!("Replacing the last commit, with {count} more files"),
@@ -243,7 +276,12 @@ fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
         .style(style::primary)
         .on_press_maybe(ready.then_some(Message::Commit));
 
-    let mut lines = column![container(editor).padding([8, 10])].spacing(8);
+    let mut lines = column![
+        container(summary).padding(Padding::default().left(10).right(10).top(8)),
+        container(row![text("").width(Fill), counter]).padding(Padding::default().left(10).right(10)),
+        container(editor).padding([0, 10]),
+    ]
+    .spacing(4);
 
     // Amending something the remote already has means the next push will be
     // refused, and that is better said before than discovered after.
@@ -270,7 +308,7 @@ fn commit_box(repo: &Repo, busy: bool) -> Element<'_, Message> {
     lines.push(
         container(
             row![
-                text(summary)
+                text(standing)
                     .size(11)
                     .width(Fill)
                     .style(|theme: &Theme| text::Style {

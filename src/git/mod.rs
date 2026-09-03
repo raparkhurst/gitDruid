@@ -20,7 +20,7 @@ mod status;
 mod worktree;
 
 pub use amend::{amend, head_message};
-pub use commit::commit;
+pub use commit::{SUMMARY_IDEAL, SUMMARY_LIMIT, commit, compose, split, trim_summary};
 pub use conflict::{Conflict, Region, Side as ConflictSide, conflict, mark_resolved, resolve, take};
 pub use detail::{ChangedFile, CommitDetail, commit_detail};
 pub use diff::{Content, FileDiff, Hunk, Line, Origin, Source, commit_file_diff, file_diff};

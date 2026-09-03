@@ -112,12 +112,16 @@ pub struct Repo {
     /// The file picked out of `detail`, and its diff within that commit.
     pub detail_file: Option<git::ChangedFile>,
     pub detail_diff: Option<git::FileDiff>,
+    /// The subject line, on its own: it is one line by convention and one line
+    /// in the box, so it cannot accidentally become two.
+    pub summary: String,
+    /// Everything under it.
     pub message: text_editor::Content,
     /// True while the next commit would replace the last one.
     pub amending: bool,
-    /// What was in the message box before amending borrowed it, so that
-    /// turning amend off gives it back rather than losing it.
-    draft: Option<String>,
+    /// What was in the boxes before amending borrowed them, so that turning
+    /// amend off gives it back rather than losing it.
+    draft: Option<(String, String)>,
     /// The global layer plus this repository's `.gitdruid`.
     pub settings: Settings,
     /// The ref the sidebar's action bar applies to.
@@ -173,6 +177,7 @@ impl Repo {
             detail: None,
             detail_file: None,
             detail_diff: None,
+            summary: String::new(),
             message: text_editor::Content::new(),
             amending: false,
             draft: None,
@@ -402,6 +407,7 @@ pub enum Message {
     PromptChanged(String),
     PromptSubmit,
     PromptCancel,
+    EditSummary(String),
     EditMessage(text_editor::Action),
     /// Switch between adding a commit and replacing the last one.
     ToggleAmend,
@@ -1371,6 +1377,16 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
 
         Message::PromptSubmit => state.run_prompt(),
 
+        Message::EditSummary(summary) => {
+            if let Some(repo) = state.active_mut() {
+                // One line, and no longer than the convention allows. Newlines
+                // arrive by paste; so does a paragraph.
+                repo.summary = git::trim_summary(&summary);
+            }
+
+            Task::none()
+        }
+
         Message::EditMessage(action) => {
             if let Some(repo) = state.active_mut() {
                 repo.message.perform(action);
@@ -1388,18 +1404,21 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
                 repo.amending = false;
 
                 // Give back whatever was being written before.
-                let draft = repo.draft.take().unwrap_or_default();
-                repo.message = text_editor::Content::with_text(&draft);
+                let (summary, description) = repo.draft.take().unwrap_or_default();
+
+                repo.summary = summary;
+                repo.message = text_editor::Content::with_text(&description);
 
                 return Task::none();
             }
 
-            let head = git::head_message(&repo.snapshot.path);
-
-            match head {
+            match git::head_message(&repo.snapshot.path) {
                 Ok(message) => {
-                    repo.draft = Some(repo.message.text());
-                    repo.message = text_editor::Content::with_text(&message);
+                    let (summary, description) = git::split(&message);
+
+                    repo.draft = Some((repo.summary.clone(), repo.message.text()));
+                    repo.summary = summary;
+                    repo.message = text_editor::Content::with_text(&description);
                     repo.amending = true;
 
                     Task::none()
@@ -1414,7 +1433,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             };
 
             let path = repo.snapshot.path.clone();
-            let message = repo.message.text();
+            let message = git::compose(&repo.summary, &repo.message.text());
             let amending = repo.amending;
 
             repo.busy = true;
@@ -1434,6 +1453,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
 
         Message::Committed(path, Ok(summary)) => {
             if let Some(repo) = state.repo_mut(&path) {
+                repo.summary = String::new();
                 repo.message = text_editor::Content::new();
                 repo.amending = false;
                 repo.draft = None;

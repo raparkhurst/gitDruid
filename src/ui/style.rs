@@ -406,6 +406,15 @@ pub fn input(theme: &Theme, status: text_input::Status) -> text_input::Style {
     style
 }
 
+/// The summary box, which is a text input dressed as the editor beneath it.
+pub fn editor_input(theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let mut style = input(theme, status);
+
+    style.background = theme.extended_palette().background.base.color.into();
+
+    style
+}
+
 /// The commit message box.
 pub fn editor(theme: &Theme, status: text_editor::Status) -> text_editor::Style {
     let mut style = text_editor::default(theme, status);
