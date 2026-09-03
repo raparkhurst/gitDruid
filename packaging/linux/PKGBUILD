@@ -1,0 +1,38 @@
+# Arch and Manjaro.
+#
+# Build with: cd packaging/linux && makepkg -si
+
+pkgname=gitdruid
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A cross-platform git GUI focused on building good commits"
+arch=('x86_64' 'aarch64')
+url="https://github.com/raparkhurst/gitDruid"
+license=('MIT')
+depends=('fontconfig' 'libxkbcommon')
+optdepends=('vulkan-icd-loader: hardware rendering, rather than the software fallback')
+makedepends=('cargo' 'cmake' 'perl' 'python')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$srcdir/$pkgname-$pkgver"
+    cargo build --release --features bundled
+}
+
+package() {
+    cd "$srcdir/$pkgname-$pkgver"
+
+    install -Dm755 target/release/git-druid "$pkgdir/usr/bin/git-druid"
+
+    python3 packaging/icon.py packaging/icons
+
+    for size in 16 32 48 64 128 256 512; do
+        install -Dm644 "packaging/icons/$size.png" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/gitdruid.png"
+    done
+
+    install -Dm644 packaging/gitdruid.desktop \
+        "$pkgdir/usr/share/applications/gitdruid.desktop"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

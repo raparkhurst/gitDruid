@@ -16,6 +16,12 @@ git2 = { version = "0.21.0", features = ["ssh", "https"] }
 iced = { version = "0.14.0", features = ["canvas", "lazy"] }
 rfd = "0.17.2"
 
+[features]
+# Builds libgit2 and OpenSSL from source rather than linking whatever the
+# distribution ships. Slower to build, and the point of it: a binary that runs
+# on RHEL 9 and on Ubuntu 25.04 without caring which libgit2 either has.
+bundled = ["git2/vendored-libgit2", "git2/vendored-openssl"]
+
 [profile.release]
 opt-level = 3
 lto = "thin"

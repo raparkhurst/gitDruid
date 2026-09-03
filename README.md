@@ -27,6 +27,13 @@ it. Chrome is hairlines and flat fills rather than cards and shadows; the
 accent colour marks what can be acted on, and nothing else. `src/ui/theme.rs`
 holds them all, and `src/ui/style.rs` everything derived from them.
 
+## Installing it
+
+Prebuilt: `gitDruid.app` on macOS, and on Linux a `.deb`, an `.rpm`, an Arch
+package, an AppImage, or a tarball that runs where it is unpacked and can add a
+menu entry without root. See [packaging/README.md](packaging/README.md) for
+which to use and how to build each.
+
 ## What it does today
 
 Three columns: the refs on the left, the commit graph in the middle, and the
