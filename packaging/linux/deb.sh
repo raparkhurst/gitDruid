@@ -12,7 +12,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+version="$(packaging/version.sh)"
+packaging/version.sh --check
 
 case "$(uname -m)" in
     x86_64)  arch=amd64 ;;

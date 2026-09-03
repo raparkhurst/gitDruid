@@ -18,7 +18,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 
 binary="git-druid"
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+version="$(packaging/version.sh)"
+packaging/version.sh --check
 arch="$(uname -m)"
 
 stage="target/portable/gitdruid-$version-linux-$arch"

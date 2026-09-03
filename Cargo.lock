@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "git-druid"
-version = "0.1.0"
+version = "0.0.5"
 dependencies = [
  "git2",
  "iced",

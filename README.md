@@ -34,6 +34,10 @@ package, an AppImage, or a tarball that runs where it is unpacked and can add a
 menu entry without root. See [packaging/README.md](packaging/README.md) for
 which to use and how to build each.
 
+On Linux, **Settings → Add to menu** puts a launcher and icons under
+`~/.local/share` pointing at wherever gitDruid is running from — which is how
+an AppImage, which integrates nothing by design, still gets an icon to click.
+
 ## What it does today
 
 Three columns: the refs on the left, the commit graph in the middle, and the

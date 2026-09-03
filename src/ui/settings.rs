@@ -38,6 +38,16 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
             .push(repository(repo.path()));
     }
 
+    let mut body = body;
+
+    // Only where a menu entry is a thing that exists, and only in the global
+    // scope: it is about this installation, not about one repository.
+    if scope == Scope::Global
+        && let Some(menu) = crate::desktop::menu()
+    {
+        body = body.push(rule::horizontal(1)).push(desktop(&menu));
+    }
+
     let body = body
         .push(rule::horizontal(1))
         .push(branching(settings, scope))
@@ -66,12 +76,19 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
 fn header() -> Element<'static, Message> {
     container(
         row![
-            text("SETTINGS").size(12).width(Fill),
+            text("SETTINGS").size(12),
+            // Which build this is. It matters the moment there is more than
+            // one of them in the world, and nowhere else in the window says.
+            text(concat!("gitDruid ", env!("CARGO_PKG_VERSION")))
+                .size(10)
+                .style(muted)
+                .width(Fill),
             button(text("✕").size(11))
                 .padding([2, 8])
                 .style(style::toggle)
                 .on_press(Message::CloseSettings),
         ]
+        .spacing(10)
         .align_y(Center),
     )
     .padding([9, 12])
@@ -172,6 +189,53 @@ fn repository(path: &std::path::Path) -> Element<'static, Message> {
                 .padding([4, 10])
                 .style(style::toggle)
                 .on_press(Message::CopyText(full)),
+        ]
+        .spacing(10)
+        .align_y(iced::Top),
+    ]
+    .spacing(8)
+    .into()
+}
+
+/// Offering to add gitDruid to the applications menu, rather than doing it.
+///
+/// An AppImage writes nothing outside itself by design, so nothing else is
+/// going to put an icon in the menu — but writing to someone's desktop without
+/// asking is not the way to fix that.
+fn desktop(menu: &crate::desktop::Menu) -> Element<'static, Message> {
+    let explain = match (&menu.installed, menu.packaged) {
+        (Some(path), _) => format!("Installed: {}", path.display()),
+        (None, true) => format!(
+            "This is an AppImage, which adds nothing to the menu on its own. The entry would              point at {}.",
+            menu.target.display()
+        ),
+        (None, false) => format!(
+            "Adds a launcher and icons under ~/.local/share, pointing at {}. No root, and              nothing outside your home directory.",
+            menu.target.display()
+        ),
+    };
+
+    let action = match menu.installed.is_some() {
+        true => button(text("Remove").size(11))
+            .padding([4, 10])
+            .style(style::toggle)
+            .on_press(Message::RemoveDesktopEntry),
+        false => button(text("Add to menu").size(11))
+            .padding([4, 10])
+            .style(style::primary)
+            .on_press(Message::InstallDesktopEntry),
+    };
+
+    column![
+        heading("DESKTOP"),
+        row![
+            text("Applications menu").size(11).width(LABEL),
+            text(explain)
+                .size(10)
+                .style(muted)
+                .wrapping(text::Wrapping::WordOrGlyph)
+                .width(Fill),
+            action,
         ]
         .spacing(10)
         .align_y(iced::Top),

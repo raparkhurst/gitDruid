@@ -16,7 +16,8 @@ cd "$root"
 name="gitDruid"
 binary="git-druid"
 identifier="io.digitalsynapse.gitdruid"
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+version="$(packaging/version.sh)"
+packaging/version.sh --check
 
 dmg=false
 universal=false

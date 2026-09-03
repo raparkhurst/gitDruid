@@ -3,7 +3,7 @@
 # Build with: cd packaging/linux && makepkg -si
 
 pkgname=gitdruid
-pkgver=0.1.0
+pkgver=0.0.5
 pkgrel=1
 pkgdesc="A cross-platform git GUI focused on building good commits"
 arch=('x86_64' 'aarch64')

@@ -8,7 +8,7 @@
 # linked or, in the case of the graphics driver, a thing no package can carry.
 
 Name:           gitdruid
-Version:        0.1.0
+Version:        0.0.5
 Release:        1%{?dist}
 Summary:        A cross-platform git GUI focused on building good commits
 
@@ -65,5 +65,5 @@ desktop-file-install --dir=%{buildroot}%{_datadir}/applications \
 %{_datadir}/icons/hicolor/*/apps/gitdruid.png
 
 %changelog
-* Wed Sep 03 2026 Robert Parkhurst <raparkhurst@digitalsynapse.io> - 0.1.0-1
+* Wed Sep 03 2026 Robert Parkhurst <raparkhurst@digitalsynapse.io> - 0.0.5-1
 - First packaged release.

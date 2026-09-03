@@ -18,8 +18,8 @@ script runs it. To change the icon, change the numbers at the top of `draw`.
 This is the one with a constraint attached, so it gets the most care.
 
 ```sh
-tar xzf gitdruid-0.1.0-linux-x86_64.tar.gz
-cd gitdruid-0.1.0-linux-x86_64
+tar xzf gitdruid-0.0.5-linux-x86_64.tar.gz
+cd gitdruid-0.0.5-linux-x86_64
 ./git-druid                 # runs, right there, installing nothing
 ./install.sh                # optional: menu entry and icon, no root
 ```
@@ -32,9 +32,22 @@ path of the installed binary, because `~/.local/bin` is not on everyone's
 works for all of them. `./uninstall.sh` takes it all back out and leaves
 `~/.config/gitDruid` alone.
 
-An AppImage is the smaller answer — one file, nothing written anywhere — but it
-has no menu entry unless `appimaged` is running. The tarball is the better
-choice when someone wants an icon to click.
+### The AppImage, and the menu
+
+An AppImage does not integrate itself. The format writes nothing outside the
+file it is, on purpose, and the tools that do integrate one —
+AppImageLauncher, `appimaged` — are packages someone has to install first,
+which is the thing that is not allowed here.
+
+So gitDruid does it itself, when asked. **Settings → Add to menu** writes a
+launcher and icons under `~/.local/share`, pointing at whatever is actually
+running: the AppImage when the `APPIMAGE` environment variable is set, and the
+executable otherwise. The icons are carried inside the binary, so a single file
+really is a single file. The same button removes it again, and settings in
+`~/.config/gitDruid` are left alone either way.
+
+It is offered rather than done. Writing to someone's applications menu without
+asking is not a thing an application should decide for itself.
 
 ## The glibc rule
 

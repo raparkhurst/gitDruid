@@ -346,6 +346,9 @@ pub enum Message {
     SettingsScope(Scope),
     SettingsChanged(String, String),
     SaveSettings,
+    /// Add or remove this application's entry in the desktop menu.
+    InstallDesktopEntry,
+    RemoveDesktopEntry,
     /// Open a file picker for the setting named by the key.
     BrowseFor(&'static str),
     Browsed(&'static str, Option<PathBuf>),
@@ -1020,6 +1023,36 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
         }
 
         Message::SaveSettings => state.save_settings(),
+
+        Message::InstallDesktopEntry => {
+            state.notice = Some(match crate::desktop::install() {
+                Ok(path) => Notice {
+                    text: format!("Added to the applications menu ({})", path.display()),
+                    is_error: false,
+                },
+                Err(error) => Notice {
+                    text: error.to_string(),
+                    is_error: true,
+                },
+            });
+
+            Task::none()
+        }
+
+        Message::RemoveDesktopEntry => {
+            state.notice = Some(match crate::desktop::remove() {
+                Ok(()) => Notice {
+                    text: "Removed from the applications menu".to_owned(),
+                    is_error: false,
+                },
+                Err(error) => Notice {
+                    text: error.to_string(),
+                    is_error: true,
+                },
+            });
+
+            Task::none()
+        }
 
         Message::BrowseFor(key) => {
             Task::perform(pick_key(), move |path| Message::Browsed(key, path))
