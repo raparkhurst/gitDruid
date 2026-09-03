@@ -32,23 +32,15 @@ fn header(detail: &CommitDetail) -> Element<'_, Message> {
         .style(style::toggle)
         .on_press(Message::ShowHistory);
 
-    let branch_here = button(text("Branch here").size(11))
-        .padding([3, 8])
-        .style(style::toggle)
-        .on_press(Message::Ask(
-            PromptKind::NewBranch,
-            String::new(),
-            Some(detail.id.clone()),
-        ));
-
-    let tag_here = button(text("Tag here").size(11))
-        .padding([3, 8])
-        .style(style::toggle)
-        .on_press(Message::Ask(
-            PromptKind::NewTag,
-            String::new(),
-            Some(detail.id.clone()),
-        ));
+    // These are also on the right-click menu, but a menu is somewhere you have
+    // to know to look. What can be done to the commit on screen belongs on the
+    // screen showing it.
+    let action = |label: &'static str, message: Message| {
+        button(text(label).size(11))
+            .padding([3, 8])
+            .style(style::toggle)
+            .on_press(message)
+    };
 
     container(
         row![
@@ -57,10 +49,21 @@ fn header(detail: &CommitDetail) -> Element<'_, Message> {
                 .size(13)
                 .font(Font::MONOSPACE)
                 .width(Fill),
-            branch_here,
-            tag_here,
+            action(
+                "Cherry-pick",
+                Message::CherryPick(detail.id.clone())
+            ),
+            action("Revert", Message::Revert(detail.id.clone())),
+            action(
+                "Branch here",
+                Message::Ask(PromptKind::NewBranch, String::new(), Some(detail.id.clone())),
+            ),
+            action(
+                "Tag here",
+                Message::Ask(PromptKind::NewTag, String::new(), Some(detail.id.clone())),
+            ),
         ]
-        .spacing(8)
+        .spacing(6)
         .align_y(Center),
     )
     .padding([8, 10])

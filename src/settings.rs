@@ -225,9 +225,24 @@ impl Settings {
         self.global.get(keys::SESSION_ACTIVE).map(PathBuf::from)
     }
 
+    /// Which workflow is in force.
+    ///
+    /// `flow.mode` wins; failing that the old boolean is read, so a settings
+    /// file written before GitHub Flow existed still says what it meant.
+    pub fn mode(&self) -> Mode {
+        if let Some(mode) = self.get(keys::FLOW_MODE).and_then(Mode::parse) {
+            return mode;
+        }
+
+        match self.flag(keys::FLOW_ENABLED, false) {
+            true => Mode::GitFlow,
+            false => Mode::Simple,
+        }
+    }
+
     pub fn flow(&self) -> Flow {
         Flow {
-            enabled: self.flag(keys::FLOW_ENABLED, false),
+            mode: self.mode(),
             main: self.text(keys::FLOW_MAIN, "main").to_owned(),
             develop: self.text(keys::FLOW_DEVELOP, "develop").to_owned(),
             feature: self.text(keys::PREFIX_FEATURE, "feature/").to_owned(),
@@ -249,10 +264,79 @@ impl Settings {
 }
 
 /// Every key gitDruid itself reads, in one place.
+/// How a repository branches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// One line, and no naming convention on top of it.
+    Simple,
+    /// GitHub Flow: one long-lived branch, and short-lived branches named by
+    /// what they are, taken off it and merged straight back into it.
+    GitHub,
+    /// git-flow: a develop line for work in progress and a main line for what
+    /// is released, with hotfixes and releases moving between them.
+    GitFlow,
+}
+
+impl Mode {
+    pub const ALL: [Mode; 3] = [Mode::Simple, Mode::GitHub, Mode::GitFlow];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Mode::Simple => "Single branch",
+            Mode::GitHub => "GitHub Flow",
+            Mode::GitFlow => "git-flow",
+        }
+    }
+
+    /// What goes in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            Mode::Simple => "simple",
+            Mode::GitHub => "github",
+            Mode::GitFlow => "gitflow",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "simple" | "single" | "none" => Some(Mode::Simple),
+            "github" | "githubflow" | "github-flow" => Some(Mode::GitHub),
+            "gitflow" | "git-flow" | "flow" => Some(Mode::GitFlow),
+            _ => None,
+        }
+    }
+
+    /// True when branches are named by what they are.
+    pub fn names_kinds(self) -> bool {
+        self != Mode::Simple
+    }
+
+    /// True when work in progress lives on its own line.
+    pub fn has_develop(self) -> bool {
+        self == Mode::GitFlow
+    }
+
+    /// The sorts of branch this workflow has a use for.
+    ///
+    /// GitHub Flow has no release branches: a release is whatever main is at
+    /// the time, which is the whole idea.
+    pub fn kinds(self) -> &'static [Kind] {
+        match self {
+            Mode::Simple => &[Kind::Plain],
+            Mode::GitHub => &[Kind::Plain, Kind::Feature, Kind::Bugfix, Kind::Hotfix],
+            Mode::GitFlow => &Kind::ALL,
+        }
+    }
+}
+
 pub mod keys {
     /// The palette, remembered so the window comes back the way it was left.
     pub const THEME: &str = "ui.theme";
 
+    /// `simple`, `github` or `gitflow`.
+    pub const FLOW_MODE: &str = "flow.mode";
+    /// What the mode was called before there were three of them. Still read so
+    /// that a `.gitdruid` written by an earlier version keeps working.
     pub const FLOW_ENABLED: &str = "flow.enabled";
     pub const FLOW_MAIN: &str = "flow.main";
     pub const FLOW_DEVELOP: &str = "flow.develop";
@@ -310,8 +394,7 @@ impl Kind {
 /// How this repository branches, and what it merges back into.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Flow {
-    /// False for a repository that branches everything off one line.
-    pub enabled: bool,
+    pub mode: Mode,
     pub main: String,
     pub develop: String,
     pub feature: String,
@@ -326,7 +409,7 @@ impl Flow {
     /// Empty without git-flow: a repository branching everything off one line
     /// has no kinds to tell apart, so naming them would be noise.
     pub fn prefix(&self, kind: Kind) -> &str {
-        if !self.enabled {
+        if !self.mode.names_kinds() {
             return "";
         }
 
@@ -345,7 +428,7 @@ impl Flow {
     /// progress comes off develop and a fix for what is already released comes
     /// off main — which is the whole point of running it.
     pub fn start_point(&self, kind: Kind) -> &str {
-        if !self.enabled {
+        if !self.mode.has_develop() {
             return &self.main;
         }
 
@@ -357,7 +440,7 @@ impl Flow {
 
     /// The branch this kind is finished by merging into.
     pub fn merges_into(&self, kind: Kind) -> &str {
-        if !self.enabled {
+        if !self.mode.has_develop() {
             return &self.main;
         }
 
@@ -385,8 +468,10 @@ impl Flow {
     /// Longest prefix wins, so a `feature/` that happens to start with a
     /// shorter configured prefix is still read as a feature.
     pub fn kind_of(&self, branch: &str) -> Option<Kind> {
-        [Kind::Feature, Kind::Bugfix, Kind::Hotfix, Kind::Release]
-            .into_iter()
+        self.mode
+            .kinds()
+            .iter()
+            .copied()
             .filter(|kind| {
                 let prefix = self.prefix(*kind);
                 !prefix.is_empty() && branch.starts_with(prefix)
@@ -688,7 +773,7 @@ mod tests {
     fn defaults_apply_when_nothing_is_configured() {
         let flow = Settings::default().flow();
 
-        assert!(!flow.enabled, "git-flow is opt-in");
+        assert_eq!(flow.mode, Mode::Simple, "a workflow is opt-in");
         assert_eq!(flow.main, "main");
         assert_eq!(flow.feature, "feature/");
 
@@ -722,7 +807,7 @@ mod tests {
     #[test]
     fn with_flow_each_kind_has_its_own_line() {
         let settings = Settings {
-            global: Layer::parse("[flow]\n enabled = true\n main = main\n develop = develop\n"),
+            global: Layer::parse("[flow]\n mode = gitflow\n main = main\n develop = develop\n"),
             repo: Layer::default(),
         };
 
@@ -746,10 +831,84 @@ mod tests {
     }
 
     #[test]
+    fn github_flow_names_branches_but_keeps_one_line() {
+        let settings = Settings {
+            global: Layer::parse("[flow]\n mode = github\n main = main\n"),
+            repo: Layer::default(),
+        };
+
+        let flow = settings.flow();
+
+        // Named like git-flow...
+        assert_eq!(flow.branch_name(Kind::Feature, "login"), "feature/login");
+        assert_eq!(flow.kind_of("feature/login"), Some(Kind::Feature));
+
+        // ...but everything comes off main and goes straight back into it.
+        for kind in flow.mode.kinds() {
+            assert_eq!(flow.start_point(*kind), "main", "{kind:?}");
+            assert_eq!(flow.merges_into(*kind), "main", "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn github_flow_has_no_release_branches() {
+        let settings = Settings {
+            global: Layer::parse("[flow]\n mode = github\n"),
+            repo: Layer::default(),
+        };
+
+        let mode = settings.mode();
+
+        assert!(!mode.kinds().contains(&Kind::Release), "{:?}", mode.kinds());
+        assert!(mode.kinds().contains(&Kind::Feature));
+        assert!(mode.kinds().contains(&Kind::Hotfix));
+
+        // A release/ branch is therefore not something this workflow can
+        // recognise, and offering to finish one would be a guess.
+        assert_eq!(settings.flow().kind_of("release/1.0"), None);
+    }
+
+    #[test]
+    fn a_workflow_written_before_there_were_three_still_reads() {
+        // `flow.mode` did not exist when the only choice was on or off.
+        for (text, expected) in [
+            ("[flow]\n enabled = true\n", Mode::GitFlow),
+            ("[flow]\n enabled = false\n", Mode::Simple),
+            ("", Mode::Simple),
+        ] {
+            let settings = Settings {
+                global: Layer::parse(text),
+                repo: Layer::default(),
+            };
+
+            assert_eq!(settings.mode(), expected, "for {text:?}");
+        }
+
+        // And the new key wins where both are present.
+        let settings = Settings {
+            global: Layer::parse("[flow]\n enabled = true\n mode = github\n"),
+            repo: Layer::default(),
+        };
+        assert_eq!(settings.mode(), Mode::GitHub);
+    }
+
+    #[test]
+    fn every_mode_survives_being_written_and_read_back() {
+        for mode in Mode::ALL {
+            let settings = Settings {
+                global: Layer::parse(&format!("[flow]\n mode = {}\n", mode.key())),
+                repo: Layer::default(),
+            };
+
+            assert_eq!(settings.mode(), mode, "{}", mode.title());
+        }
+    }
+
+    #[test]
     fn an_existing_branch_is_recognised_by_its_prefix() {
         let settings = Settings {
             global: Layer::parse(
-                "[flow]\n enabled = true\n[prefix]\n feature = feature/\n hotfix = hotfix/\n",
+                "[flow]\n mode = gitflow\n[prefix]\n feature = feature/\n hotfix = hotfix/\n",
             ),
             repo: Layer::default(),
         };
@@ -766,7 +925,7 @@ mod tests {
     fn prefixes_are_matched_longest_first() {
         let settings = Settings {
             global: Layer::parse(
-                "[flow]\n enabled = true\n[prefix]\n feature = f/\n bugfix = f/bug/\n",
+                "[flow]\n mode = gitflow\n[prefix]\n feature = f/\n bugfix = f/bug/\n",
             ),
             repo: Layer::default(),
         };
@@ -802,6 +961,10 @@ mod tests {
             global: layer,
             repo: Layer::default(),
         };
-        assert!(settings.flow().enabled, "TRUE should read as true");
+        assert_eq!(
+            settings.mode(),
+            Mode::GitFlow,
+            "the old boolean still says what it meant"
+        );
     }
 }

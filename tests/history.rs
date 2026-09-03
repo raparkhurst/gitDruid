@@ -677,7 +677,7 @@ fn a_git_flow_feature_branches_from_develop_and_merges_back_into_it() {
     // main moves on, so branching from the wrong one would be visible.
     commit(path, "on-main");
 
-    let flow = flow_from("[flow]\n enabled = true\n main = main\n develop = develop\n");
+    let flow = flow_from("[flow]\n mode = gitflow\n main = main\n develop = develop\n");
 
     let name = flow.branch_name(Kind::Feature, "login");
     assert_eq!(name, "feature/login");
@@ -716,7 +716,7 @@ fn a_git_flow_hotfix_branches_from_main_and_merges_back_into_it() {
     commit(path, "on-develop");
     git_cli(path, &["checkout", "--quiet", "main"]);
 
-    let flow = flow_from("[flow]\n enabled = true\n main = main\n develop = develop\n");
+    let flow = flow_from("[flow]\n mode = gitflow\n main = main\n develop = develop\n");
 
     assert_eq!(flow.start_point(Kind::Hotfix), "main");
 
@@ -809,7 +809,7 @@ fn a_repository_file_overrides_the_workflow_for_that_repository_only() {
     let path = dir.path();
 
     let mut settings = Settings {
-        global: Layer::parse("[flow]\n enabled = true\n develop = develop\n"),
+        global: Layer::parse("[flow]\n mode = gitflow\n develop = develop\n"),
         repo: Layer::default(),
     };
 
@@ -828,7 +828,11 @@ fn a_repository_file_overrides_the_workflow_for_that_repository_only() {
     };
 
     let flow = reloaded.flow();
-    assert!(flow.enabled, "the global file still supplies this");
+    assert_eq!(
+        flow.mode,
+        git_druid::settings::Mode::GitFlow,
+        "the global file still supplies this"
+    );
     assert_eq!(flow.develop, "integration", "the repository overrides this");
 
     // And the file is the plain text it claims to be.

@@ -213,7 +213,7 @@ fn a_workflow_branch_offers_to_finish_into_the_right_place() {
     git_cli(path, &["branch", "feature/login"]);
     git_cli(path, &["branch", "hotfix/crash"]);
 
-    let config = "[flow]\n enabled = true\n main = main\n develop = develop\n";
+    let config = "[flow]\n mode = gitflow\n main = main\n develop = develop\n";
     let bundle = bundle(path, config);
 
     let feature = labels(

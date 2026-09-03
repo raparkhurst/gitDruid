@@ -10,7 +10,7 @@ use iced::widget::{Column, button, column, container, row, rule, scrollable, tex
 use iced::{Center, Element, Fill, Theme};
 
 use crate::app::{GitDruid, Message, Prompt, PromptKind};
-use crate::settings::{Kind, Scope, Settings, keys};
+use crate::settings::{Kind, Mode, Scope, Settings, keys};
 use crate::ui::style;
 
 /// Wide enough for a path to a key without wrapping.
@@ -147,13 +147,7 @@ fn branching(settings: &Settings, scope: Scope) -> Element<'_, Message> {
     let mut section = Column::new()
         .spacing(8)
         .push(heading("BRANCHING"))
-        .push(choice(
-            "Workflow",
-            keys::FLOW_ENABLED,
-            &[("Single branch", "false"), ("git-flow", "true")],
-            settings,
-            scope,
-        ))
+        .push(modes(settings, scope))
         .push(field(
             "Main branch",
             keys::FLOW_MAIN,
@@ -162,7 +156,7 @@ fn branching(settings: &Settings, scope: Scope) -> Element<'_, Message> {
             scope,
         ));
 
-    if flow.enabled {
+    if flow.mode.has_develop() {
         section = section.push(field(
             "Develop branch",
             keys::FLOW_DEVELOP,
@@ -172,27 +166,84 @@ fn branching(settings: &Settings, scope: Scope) -> Element<'_, Message> {
         ));
     }
 
-    section = section.push(
-        text(match flow.enabled {
-            true => format!(
-                "Features and bugfixes branch from {} and merge back into it. Hotfixes and \
-                 releases branch from {} and merge back into it.",
-                flow.develop, flow.main
-            ),
-            false => format!("Everything branches from {} and merges back into it.", flow.main),
-        })
-        .size(10)
-        .style(muted),
-    );
+    section = section.push(text(describe(&flow)).size(10).style(muted));
 
     section.into()
 }
 
+/// Says, in the repository's own branch names, what the chosen workflow does.
+fn describe(flow: &crate::settings::Flow) -> String {
+    match flow.mode {
+        Mode::Simple => format!(
+            "Everything branches from {} and merges back into it.",
+            flow.main
+        ),
+        Mode::GitHub => format!(
+            "Short-lived branches come off {0}, are named by what they are, and merge straight \
+             back into {0}. A release is whatever {0} is at the time, so there are no release \
+             branches.",
+            flow.main
+        ),
+        Mode::GitFlow => format!(
+            "Features and bugfixes branch from {} and merge back into it. Hotfixes and releases \
+             branch from {} and merge back into it.",
+            flow.develop, flow.main
+        ),
+    }
+}
+
+/// The workflow picker. Three buttons rather than a checkbox, because there
+/// are three answers and one of them is not the absence of another.
+fn modes(settings: &Settings, scope: Scope) -> Element<'_, Message> {
+    let current = settings.layer(scope).get(keys::FLOW_MODE);
+    let effective = settings.mode();
+
+    let mut buttons = row![].spacing(4).align_y(Center);
+
+    if scope == Scope::Repo {
+        buttons = buttons.push(
+            button(text("Inherit").size(11))
+                .padding([4, 10])
+                .style(style::option(current.is_none()))
+                .on_press(Message::SettingsChanged(
+                    keys::FLOW_MODE.to_owned(),
+                    String::new(),
+                )),
+        );
+    }
+
+    for mode in Mode::ALL {
+        // With nothing set in this scope the effective mode is still worth
+        // showing, so the row is never a line of blanks.
+        let chosen = match current {
+            Some(value) => value == mode.key(),
+            None => scope == Scope::Global && effective == mode,
+        };
+
+        buttons = buttons.push(
+            button(text(mode.title()).size(11))
+                .padding([4, 10])
+                .style(style::option(chosen))
+                .on_press(Message::SettingsChanged(
+                    keys::FLOW_MODE.to_owned(),
+                    mode.key().to_owned(),
+                )),
+        );
+    }
+
+    row![text("Workflow").size(11).width(LABEL), buttons]
+        .spacing(10)
+        .align_y(Center)
+        .into()
+}
+
 fn prefixes(settings: &Settings, scope: Scope) -> Element<'_, Message> {
-    if !settings.flow().enabled {
+    let mode = settings.mode();
+
+    if !mode.names_kinds() {
         return column![
             heading("BRANCH PREFIXES"),
-            text("Turn on git-flow to name sorts of branch.")
+            text("Pick a workflow above to name sorts of branch.")
                 .size(10)
                 .style(muted),
         ]
@@ -200,15 +251,29 @@ fn prefixes(settings: &Settings, scope: Scope) -> Element<'_, Message> {
         .into();
     }
 
-    column![
-        heading("BRANCH PREFIXES"),
-        field("Feature", keys::PREFIX_FEATURE, "feature/", settings, scope),
-        field("Bugfix", keys::PREFIX_BUGFIX, "bugfix/", settings, scope),
-        field("Hotfix", keys::PREFIX_HOTFIX, "hotfix/", settings, scope),
-        field("Release", keys::PREFIX_RELEASE, "release/", settings, scope),
-    ]
-    .spacing(8)
-    .into()
+    let mut section = Column::new().spacing(8).push(heading("BRANCH PREFIXES"));
+
+    // Only the sorts this workflow has a use for: a release prefix under
+    // GitHub Flow would be a box that never gets read.
+    for kind in mode.kinds() {
+        let Some((label, key, default)) = prefix_field(*kind) else {
+            continue;
+        };
+
+        section = section.push(field(label, key, default, settings, scope));
+    }
+
+    section.into()
+}
+
+fn prefix_field(kind: Kind) -> Option<(&'static str, &'static str, &'static str)> {
+    match kind {
+        Kind::Plain => None,
+        Kind::Feature => Some(("Feature", keys::PREFIX_FEATURE, "feature/")),
+        Kind::Bugfix => Some(("Bugfix", keys::PREFIX_BUGFIX, "bugfix/")),
+        Kind::Hotfix => Some(("Hotfix", keys::PREFIX_HOTFIX, "hotfix/")),
+        Kind::Release => Some(("Release", keys::PREFIX_RELEASE, "release/")),
+    }
 }
 
 fn authentication(settings: &Settings, scope: Scope) -> Element<'_, Message> {
@@ -372,13 +437,15 @@ fn muted(theme: &Theme) -> text::Style {
 /// Absent without git-flow: a repository branching everything off one line has
 /// no sorts to choose between.
 pub fn flow_picker(settings: &Settings, chosen: Kind) -> Option<Element<'static, Message>> {
-    if !settings.flow().enabled {
+    let mode = settings.mode();
+
+    if !mode.names_kinds() {
         return None;
     }
 
     let mut kinds = row![].spacing(4).align_y(Center);
 
-    for kind in Kind::ALL {
+    for kind in mode.kinds().iter().copied() {
         kinds = kinds.push(
             button(text(kind.title()).size(11))
                 .padding([3, 8])
@@ -402,7 +469,7 @@ pub fn flow_preview(settings: &Settings, prompt: &Prompt) -> Option<String> {
 
     let flow = settings.flow();
 
-    if !flow.enabled {
+    if !flow.mode.names_kinds() {
         return None;
     }
 

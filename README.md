@@ -56,12 +56,14 @@ tab.
   conflicts — and finishes an open merge, writing the commit with both parents.
 - Shows the branch, its path on disk, and how far ahead of and behind its
   upstream it is.
-- Configurable, in a dialog: whether this repository runs git-flow, what its
-  main and develop branches are called, the prefixes for features, bugfixes,
-  hotfixes and releases, and how to authenticate to a remote.
-- Creates branches by workflow. With git-flow on, a feature starts from develop
-  and a hotfix from main, each named with its prefix, and "Finish" merges it
-  back into the branch it belongs to.
+- Configurable, in a dialog: which workflow this repository follows — a single
+  branch, GitHub Flow, or git-flow — what its branches are called, the prefixes
+  for features, bugfixes, hotfixes and releases, and how to authenticate to a
+  remote.
+- Creates branches by workflow. Under git-flow a feature starts from develop
+  and a hotfix from main; under GitHub Flow everything comes off the main line
+  and goes straight back into it. Either way "Finish" merges a branch into
+  wherever it belongs.
 - Offers the rest on a right-click: ignoring an untracked file, its extension
   or its folder; discarding unstaged changes; cherry-picking or reverting a
   commit; copying its id; and the branch and tag actions, without going via the
@@ -141,7 +143,7 @@ editor already knows:
 
 ```
 [flow]
-	enabled = true
+	mode = gitflow
 	main = main
 	develop = develop
 [prefix]
@@ -177,6 +179,25 @@ pushes the whole window down and pulls it back up a moment later, which is
 worse than the space it saves — and it moves whatever the user was about to
 click. A question outranks a result there, because a question is blocking
 something and a result is only there to be read.
+
+### Workflows
+
+Three, and the difference between them is where a branch starts and what it
+merges back into:
+
+| | starts from | merges into | named |
+|---|---|---|---|
+| Single branch | main | main | no |
+| GitHub Flow | main | main | yes |
+| git-flow | develop, or main for a hotfix | the one it came from | yes |
+
+GitHub Flow has no release branches, because a release is whatever the main
+line is at the time — so the settings dialog does not offer a release prefix
+there, and a `release/` branch is not something it will offer to finish.
+
+`flow.mode` is `simple`, `github` or `gitflow`. A settings file written before
+there were three still reads: the old `flow.enabled` boolean is consulted when
+`flow.mode` is absent.
 
 ### Selecting several files
 

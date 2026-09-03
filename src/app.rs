@@ -1083,7 +1083,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
                     },
                     // A workflow that names sorts of branch has to start on
                     // one of them; a feature is the everyday case.
-                    flow: match flow.enabled {
+                    flow: match flow.mode.names_kinds() {
                         true => settings::Kind::Feature,
                         false => settings::Kind::Plain,
                     },
@@ -1495,7 +1495,7 @@ impl GitDruid {
         // A commit picked out of the graph is an explicit instruction and
         // outranks the workflow's idea of where this sort of branch starts.
         let start = prompt.at.clone().or_else(|| match prompt.kind {
-            PromptKind::NewBranch if flow.enabled => {
+            PromptKind::NewBranch if flow.mode.has_develop() => {
                 Some(flow.start_point(prompt.flow).to_owned())
             }
             _ => None,
