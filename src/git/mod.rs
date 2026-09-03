@@ -15,7 +15,9 @@ mod merge;
 mod pick;
 mod refs;
 mod remote;
+mod reset;
 mod stage;
+mod stash;
 mod status;
 mod worktree;
 
@@ -28,6 +30,8 @@ pub use history::{Badge, BadgeKind, Commit, Edge, History, Row, history};
 pub use merge::{finish_branch, merge_branch};
 pub use pick::{abort, cherry_pick, revert};
 pub use remote::{Tracking, fetch, pull, push, tracking};
+pub use reset::{Reset, reset};
+pub use stash::{Stash, stash_apply, stash_drop, stash_pop, stash_save, stashes};
 pub use refs::{
     Branch, Refs, Tag, checkout_branch, create_branch, create_tag, delete_branch, delete_tag,
     refs, rename_branch,

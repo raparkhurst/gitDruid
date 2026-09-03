@@ -182,6 +182,48 @@ fn a_commit_offers_the_things_you_do_to_one() {
     assert!(mentions(&labels, "Branch here"), "{labels:?}");
     assert!(mentions(&labels, "Tag here"), "{labels:?}");
     assert!(mentions(&labels, &format!("Copy id  ({id:.7})")), "{labels:?}");
+
+    // The three resets say what they take with them rather than naming modes.
+    assert!(mentions(&labels, "Reset here, keeping the changes staged"), "{labels:?}");
+    assert!(mentions(&labels, "Reset here, keeping the changes"), "{labels:?}");
+    assert!(mentions(&labels, "Reset here, discarding the changes"), "{labels:?}");
+}
+
+#[test]
+fn only_the_reset_that_loses_work_is_marked_dangerous() {
+    let dir = repo();
+    let path = dir.path();
+
+    let bundle = bundle(path, "");
+    let id = bundle.history.commits.first().unwrap().id.clone();
+
+    let items = menu::items(&context(&bundle), &Target::Commit(id));
+
+    let marked: Vec<&str> = items
+        .iter()
+        .filter(|item| item.is_destructive())
+        .map(|item| item.label())
+        .collect();
+
+    assert_eq!(
+        marked,
+        ["Reset here, discarding the changes"],
+        "soft and mixed keep the work, so they are not the dangerous one"
+    );
+}
+
+#[test]
+fn a_stash_offers_pop_apply_and_drop() {
+    let dir = repo();
+    let path = dir.path();
+
+    let bundle = bundle(path, "");
+    let labels = labels(&bundle, &Target::Ref(RefTarget::Stash(0)));
+
+    assert_eq!(labels[0], "stash 0");
+    assert!(mentions(&labels, "Pop — put it back and remove it"), "{labels:?}");
+    assert!(mentions(&labels, "Apply — put it back and keep it"), "{labels:?}");
+    assert!(mentions(&labels, "Drop"), "{labels:?}");
 }
 
 #[test]

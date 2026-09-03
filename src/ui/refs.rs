@@ -51,6 +51,14 @@ pub fn view(repo: &Repo, busy: bool) -> Element<'_, Message> {
         lists = lists.push(tag_row(repo, tag));
     }
 
+    if !repo.refs.stashes.is_empty() {
+        lists = lists.push(section_title("Stashes"));
+
+        for stash in &repo.refs.stashes {
+            lists = lists.push(stash_row(repo, stash));
+        }
+    }
+
     content = content.push(scrollable(lists).width(Fill).height(Fill));
 
     container(content)
@@ -175,6 +183,26 @@ fn action_bar(repo: &Repo, busy: bool) -> Element<'_, Message> {
             enabled.then(|| Message::Ask(PromptKind::DeleteTag, name.clone(), None)),
             true,
         )],
+        RefTarget::Stash(index) => {
+            let index = *index;
+
+            vec![
+                // Pop first: putting the work back and also keeping a copy of
+                // it is the rarer thing to want.
+                small("Pop", enabled.then_some(Message::ApplyStash(index, true)), false),
+                small(
+                    "Apply",
+                    enabled.then_some(Message::ApplyStash(index, false)),
+                    false,
+                ),
+                small(
+                    "Drop",
+                    enabled
+                        .then(|| Message::Ask(PromptKind::DropStash(index), String::new(), None)),
+                    true,
+                ),
+            ]
+        }
     };
 
     // Two to a line: four of these will not fit across a 250px sidebar.
@@ -277,6 +305,43 @@ fn tag_row<'a>(repo: &'a Repo, tag: &'a Tag) -> Element<'a, Message> {
                     .size(10)
                     .font(Font::MONOSPACE)
                     .style(muted),
+            ]
+            .spacing(6)
+            .align_y(Center),
+        )
+        .padding([4, 6])
+        .width(Fill)
+        .style(style::row(selected))
+        .on_press(Message::SelectRef(target.clone())),
+    )
+    .on_right_press(Message::OpenMenu(Target::Ref(target)))
+    .into()
+}
+
+fn stash_row<'a>(repo: &'a Repo, stash: &'a crate::git::Stash) -> Element<'a, Message> {
+    let target = RefTarget::Stash(stash.index);
+    let selected = repo.selected_ref.as_ref() == Some(&target);
+
+    // git writes "WIP on main: 1234567 subject", which is mostly boilerplate;
+    // what the person typed, or what they were on, is the end of it.
+    let label = stash
+        .message
+        .split_once(": ")
+        .map(|(_, rest)| rest.to_owned())
+        .unwrap_or_else(|| stash.message.clone());
+
+    mouse_area(
+        button(
+            row![
+                text(format!("{}", stash.index))
+                    .size(10)
+                    .font(Font::MONOSPACE)
+                    .width(14)
+                    .style(muted),
+                text(label)
+                    .size(12)
+                    .width(Fill)
+                    .wrapping(text::Wrapping::None),
             ]
             .spacing(6)
             .align_y(Center),

@@ -390,7 +390,7 @@ fn prompt_bar<'a>(
         line = line.push(picker);
     }
 
-    if prompt.kind.needs_name() {
+    if prompt.kind.takes_name() {
         line = line.push(
             text_input(placeholder(prompt.kind), &prompt.value)
                 .size(12)
@@ -419,6 +419,8 @@ fn prompt_bar<'a>(
             | PromptKind::DeleteTag
             | PromptKind::Discard { .. }
             | PromptKind::Abort
+            | PromptKind::DropStash(_)
+            | PromptKind::ResetHard
     );
 
     let confirm = button(text(verb(prompt.kind)).size(11))
@@ -462,6 +464,14 @@ fn question(prompt: &Prompt) -> String {
         }
         PromptKind::DeleteTag => format!("Delete tag {}?", prompt.subject),
         PromptKind::Merge => format!("Merge {} into the current branch?", prompt.subject),
+        PromptKind::Stash => "Put the working tree aside, untracked files and all".to_owned(),
+        PromptKind::DropStash(index) => {
+            format!("Drop stash {index}? What is in it is not anywhere else.")
+        }
+        PromptKind::ResetHard => format!(
+            "Reset to {:.7} and discard everything after it, including anything uncommitted?",
+            prompt.subject
+        ),
         PromptKind::Abort => format!(
             "Abort the {}? The working tree goes back to where it was, and anything resolved so \
              far is lost.",
@@ -485,6 +495,7 @@ fn question(prompt: &Prompt) -> String {
 fn placeholder(kind: PromptKind) -> &'static str {
     match kind {
         PromptKind::NewTag => "Tag name",
+        PromptKind::Stash => "What you were doing (optional)",
         _ => "Branch name",
     }
 }
@@ -500,6 +511,9 @@ fn verb(kind: PromptKind) -> &'static str {
         PromptKind::Merge => "Merge",
         PromptKind::Discard { .. } => "Discard",
         PromptKind::Abort => "Abort",
+        PromptKind::Stash => "Stash",
+        PromptKind::DropStash(_) => "Drop",
+        PromptKind::ResetHard => "Reset",
         PromptKind::Finish => "Finish",
         PromptKind::Pull => "Pull",
         PromptKind::Push => "Push",

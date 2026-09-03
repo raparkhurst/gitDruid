@@ -36,6 +36,9 @@ pub struct Refs {
     pub local: Vec<Branch>,
     pub remote: Vec<Branch>,
     pub tags: Vec<Tag>,
+    /// The stash stack. Not a ref anyone names, but read and shown alongside
+    /// them because it changes for the same reasons they do.
+    pub stashes: Vec<super::Stash>,
     /// What a push or pull would act on, or `None` when there is nothing to
     /// talk to. Read here because it is a fact about branches and remotes, and
     /// this is already read whenever either might have changed.
@@ -117,6 +120,7 @@ pub fn refs(repo_path: &Path) -> Result<Refs> {
         local,
         remote,
         tags,
+        stashes: super::stashes(repo_path).unwrap_or_default(),
         tracking: super::remote::read_tracking(&repo),
     })
 }

@@ -260,12 +260,15 @@ pub enum RefTarget {
     Local(String),
     Remote(String),
     Tag(String),
+    /// A stash, by its place in the stack.
+    Stash(usize),
 }
 
 impl RefTarget {
     pub fn name(&self) -> &str {
         match self {
             RefTarget::Local(name) | RefTarget::Remote(name) | RefTarget::Tag(name) => name,
+            RefTarget::Stash(_) => "stash",
         }
     }
 }
@@ -318,6 +321,15 @@ pub enum PromptKind {
     },
     /// Abandoning a half-finished merge, cherry-pick or revert.
     Abort,
+    /// Putting the working tree aside. The name is optional here, unlike the
+    /// prompts that create a ref, because git will invent one.
+    Stash,
+    /// Throwing a stash away.
+    DropStash(usize),
+    /// Moving the branch, which loses uncommitted work when it is hard. The
+    /// commit to move to travels in the prompt's subject, so that this stays
+    /// a plain copyable value.
+    ResetHard,
     /// Merge a workflow branch back into the branch it belongs to.
     Finish,
     /// Pull and push are confirmed for opposite reasons: a pull can leave a
@@ -334,6 +346,11 @@ impl PromptKind {
             self,
             PromptKind::NewBranch | PromptKind::RenameBranch | PromptKind::NewTag
         )
+    }
+
+    /// True for the prompts that offer a box, whether or not they insist on it.
+    pub fn takes_name(self) -> bool {
+        self.needs_name() || self == PromptKind::Stash
     }
 }
 
@@ -368,6 +385,10 @@ pub enum Message {
     ToggleHunk(usize),
     Checkout(String),
     Fetch,
+    /// Put a stash back, keeping it or taking it off the stack.
+    ApplyStash(usize, bool),
+    /// Move the branch, keeping the work staged or unstaged.
+    Reset(String, git::Reset),
     OpenSettings,
     CloseSettings,
     /// The splash's window is up, which is when its clock starts.
@@ -1311,6 +1332,43 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             Task::none()
         }
 
+        Message::ApplyStash(index, pop) => {
+            let Some(repo) = state.active_mut() else {
+                return Task::none();
+            };
+
+            let path = repo.snapshot.path.clone();
+            repo.busy = true;
+
+            let wanted = path.clone();
+
+            Task::perform(
+                async move {
+                    match pop {
+                        true => git::stash_pop(&path, index),
+                        false => git::stash_apply(&path, index),
+                    }
+                },
+                move |result| Message::Applied(wanted.clone(), result),
+            )
+        }
+
+        Message::Reset(target, mode) => {
+            let Some(repo) = state.active_mut() else {
+                return Task::none();
+            };
+
+            let path = repo.snapshot.path.clone();
+            repo.busy = true;
+
+            let wanted = path.clone();
+
+            Task::perform(
+                async move { git::reset(&path, &target, mode) },
+                move |result| Message::Applied(wanted.clone(), result),
+            )
+        }
+
         Message::SelectRef(target) => {
             if let Some(repo) = state.active_mut() {
                 // A prompt was asked about the previous selection, so it stops
@@ -1902,6 +1960,18 @@ impl GitDruid {
                 )
             }
             PromptKind::Abort => Task::perform(async move { git::abort(&path) }, reply),
+            PromptKind::Stash => {
+                // Untracked files go with it. Leaving them behind is the
+                // surprise: "put my work aside" does not mean some of it.
+                Task::perform(async move { git::stash_save(&path, &name, true) }, reply)
+            }
+            PromptKind::DropStash(index) => {
+                Task::perform(async move { git::stash_drop(&path, index) }, reply)
+            }
+            PromptKind::ResetHard => Task::perform(
+                async move { git::reset(&path, &subject, git::Reset::Hard) },
+                reply,
+            ),
             PromptKind::Pull => {
                 Task::perform(async move { git::pull(&path, &credentials) }, reply)
             }
@@ -2124,6 +2194,7 @@ fn exists(refs: &git::Refs, target: &RefTarget) -> bool {
         RefTarget::Local(name) => refs.local.iter().any(|branch| branch.name == *name),
         RefTarget::Remote(name) => refs.remote.iter().any(|branch| branch.name == *name),
         RefTarget::Tag(name) => refs.tags.iter().any(|tag| tag.name == *name),
+        RefTarget::Stash(index) => refs.stashes.iter().any(|stash| stash.index == *index),
     }
 }
 

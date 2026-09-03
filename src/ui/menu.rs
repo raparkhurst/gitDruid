@@ -308,6 +308,21 @@ fn commit_items(context: &Context<'_>, id: &str) -> Vec<Item> {
             Message::Ask(PromptKind::NewTag, String::new(), Some(id.to_owned())),
         ),
         Item::Separator,
+        // The three differ only in what they take with them, so the labels
+        // say that rather than naming the modes.
+        action(
+            "Reset here, keeping the changes staged",
+            Message::Reset(id.to_owned(), git::Reset::Soft),
+        ),
+        action(
+            "Reset here, keeping the changes",
+            Message::Reset(id.to_owned(), git::Reset::Mixed),
+        ),
+        dangerous(
+            "Reset here, discarding the changes",
+            Message::Ask(PromptKind::ResetHard, id.to_owned(), None),
+        ),
+        Item::Separator,
         action(format!("Copy id  ({short})"), Message::CopyText(id.to_owned())),
     ]
 }
@@ -382,5 +397,19 @@ fn ref_items(context: &Context<'_>, target: &RefTarget) -> Vec<Item> {
                 Message::Ask(PromptKind::DeleteTag, name, None),
             ),
         ],
+        RefTarget::Stash(index) => {
+            let index = *index;
+
+            vec![
+                Item::Heading(format!("stash {index}")),
+                action("Pop — put it back and remove it", Message::ApplyStash(index, true)),
+                action("Apply — put it back and keep it", Message::ApplyStash(index, false)),
+                Item::Separator,
+                dangerous(
+                    "Drop",
+                    Message::Ask(PromptKind::DropStash(index), String::new(), None),
+                ),
+            ]
+        }
     }
 }

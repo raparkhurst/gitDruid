@@ -6,7 +6,7 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill, FillPortion, Font, Padding, Theme};
 
-use crate::app::{Message, Repo, Target};
+use crate::app::{Message, PromptKind, Repo, Target};
 use crate::git::{self, Change, FileEntry, Side};
 use crate::ui::style;
 
@@ -83,6 +83,20 @@ fn bulk_bar(repo: &Repo, busy: bool) -> Element<'_, Message> {
                 .on_press(Message::ClearMarks),
         );
     }
+
+    // Stashing is about the whole working tree rather than about either list,
+    // but this is where the working tree is, so this is where it goes.
+    let anything = !repo.snapshot.unstaged.is_empty() || !repo.snapshot.staged.is_empty();
+
+    line = line.push(
+        button(text("Stash").size(11))
+            .padding([4, 8])
+            .style(style::toggle)
+            .on_press_maybe(
+                (!busy && anything)
+                    .then(|| Message::Ask(PromptKind::Stash, String::new(), None)),
+            ),
+    );
 
     container(line)
         .padding(Padding::default().left(10).right(10).top(6).bottom(6))
