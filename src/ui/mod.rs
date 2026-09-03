@@ -17,19 +17,37 @@ use iced::widget::{
     button, column, container, opaque, pick_list, row, rule, scrollable, stack, text, text_input,
     tooltip,
 };
-use iced::{Center, Element, Fill, Padding, Theme};
+use iced::{Center, Element, Fill, Padding, Size, Theme, window};
 
-use crate::app::{Focus, GitDruid, Message, Prompt, PromptKind, Repo, Splash};
+use crate::app::{Focus, GitDruid, Message, Prompt, PromptKind, Repo};
 
 /// Longest repository name a tab shows before it is cut.
 const TAB_NAME: usize = 20;
 
-pub fn view(state: &GitDruid) -> Element<'_, Message> {
-    // Nothing else is built while the splash is the whole window: assembling a
-    // five-hundred-row graph behind something nobody can see through is work
-    // done for no one.
-    if state.splash == Some(Splash::Alone) {
-        return splash::view(true);
+/// The application's window.
+pub fn main_window() -> window::Settings {
+    window::Settings {
+        size: Size::new(1400.0, 840.0),
+        position: window::Position::Centered,
+
+        // Wayland and X11 match a window to its launcher by this id, and show
+        // the launcher's icon in the dock when they match. It has to be the
+        // basename of the installed .desktop file, which is `gitdruid`.
+        #[cfg(target_os = "linux")]
+        platform_specific: window::settings::PlatformSpecific {
+            application_id: "gitdruid".to_owned(),
+            ..window::settings::PlatformSpecific::default()
+        },
+
+        ..window::Settings::default()
+    }
+}
+
+pub fn view(state: &GitDruid, id: window::Id) -> Element<'_, Message> {
+    // Each window draws its own thing, and the splash's is not the
+    // application: nothing of it is built while the splash is what is up.
+    if state.splash == Some(id) {
+        return splash::view();
     }
 
     let body: Element<'_, Message> = match state.active() {
@@ -47,12 +65,6 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
     ]
     .width(Fill)
     .height(Fill);
-
-    // The second phase: the application is there, with the splash still over
-    // it, on its way out.
-    if state.splash == Some(Splash::Over) {
-        return stack![screen, opaque(splash::view(false))].into();
-    }
 
     // `opaque` stops clicks reaching the window behind, which is what makes
     // this a dialog rather than a panel drawn on top of a live app.

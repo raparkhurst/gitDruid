@@ -42,8 +42,15 @@ pub struct GitDruid {
     /// is open. Each open repository carries its own resolved copy.
     pub settings: Settings,
     pub settings_open: bool,
-    /// The splash, while it is up. Only ever at startup.
-    pub splash: Option<Splash>,
+    /// The splash's own window, while there is one.
+    ///
+    /// A real window rather than something drawn inside the main one: the
+    /// point of a splash is to be on screen *before* the application, and an
+    /// overlay cannot be, because the window it is drawn in is the
+    /// application's.
+    pub splash: Option<window::Id>,
+    /// The application's window, once it has been opened.
+    pub main: Option<window::Id>,
     /// When the process started, used only to give up on a splash that the
     /// window never told us had appeared.
     started: Instant,
@@ -212,15 +219,6 @@ impl Repo {
     }
 }
 
-/// Which of the splash's two phases is running.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Splash {
-    /// Nothing else is drawn: the window is the splash.
-    Alone,
-    /// The application is drawn behind it, dimmed, on its way in.
-    Over,
-}
-
 /// An open context menu, and what it is about.
 #[derive(Debug, Clone)]
 pub struct Menu {
@@ -353,11 +351,16 @@ pub enum Message {
     Fetch,
     OpenSettings,
     CloseSettings,
-    /// The window is on screen, which is when the splash's clock starts.
-    WindowOpened,
-    /// Time to draw the application behind the splash.
-    SplashOver,
+    /// The splash's window is up, which is when its clock starts.
+    SplashShown,
+    /// Time to bring the application up behind it.
+    ShowMain,
+    /// The application's window is up.
+    MainShown(window::Id),
+    /// Take the splash away.
     DismissSplash,
+    /// A window was closed. Closing the application's window ends the process.
+    WindowClosed(window::Id),
     CursorMoved(Point),
     ModifiersChanged(keyboard::Modifiers),
     WindowResized(Size),
@@ -433,7 +436,9 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         .and_then(crate::ui::theme::by_name)
         .unwrap_or_else(crate::ui::theme::default);
 
-    let splash = settings.splash().then_some(Splash::Alone);
+
+
+    let show_splash = settings.splash();
 
     let mut state = GitDruid {
         repos: Vec::new(),
@@ -442,7 +447,8 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         activate: None,
         notice: None,
         settings,
-        splash,
+        splash: None,
+        main: None,
         started: Instant::now(),
         settings_open: false,
         settings_scope: Scope::Global,
@@ -481,19 +487,41 @@ pub fn boot() -> (GitDruid, Task<Message>) {
 
     // The repositories are read while the splash is up, so the time it takes
     // is not time added to starting: by the time it goes, the tabs are there.
-    // The splash's own clock does not start until the window opens.
+    if show_splash {
+        let (id, opened) = window::open(splash::window());
+
+        state.splash = Some(id);
+        tasks.push(opened.map(|_| Message::SplashShown));
+    } else {
+        tasks.push(open_main());
+    }
+
     (state, Task::batch(tasks))
 }
 
-pub fn title(state: &GitDruid) -> String {
+pub fn title(state: &GitDruid, window: window::Id) -> String {
+    // The splash has no title bar to show one, but the window manager and the
+    // accessibility tree still ask, and answering with the repository name
+    // would be a lie about what that window is.
+    if state.splash == Some(window) {
+        return "gitDruid".to_owned();
+    }
+
     match state.active() {
         Some(repo) => format!("{} — gitDruid", repo.name()),
         None => "gitDruid".to_owned(),
     }
 }
 
-pub fn theme(state: &GitDruid) -> Theme {
+pub fn theme(state: &GitDruid, _window: window::Id) -> Theme {
     state.theme.clone()
+}
+
+/// Opens the application's window, and says so when it is up.
+fn open_main() -> Task<Message> {
+    let (_, opened) = window::open(crate::ui::main_window());
+
+    opened.map(Message::MainShown)
 }
 
 pub fn subscription(_state: &GitDruid) -> Subscription<Message> {
@@ -509,7 +537,6 @@ pub fn subscription(_state: &GitDruid) -> Subscription<Message> {
             Event::Window(window::Event::Focused) => Some(Message::WindowFocused(true)),
             Event::Window(window::Event::Unfocused) => Some(Message::WindowFocused(false)),
             Event::Window(window::Event::Resized(size)) => Some(Message::WindowResized(size)),
-            Event::Window(window::Event::Opened { .. }) => Some(Message::WindowOpened),
             // A button press carries no position, so the last one the pointer
             // moved to is where a menu has to open.
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
@@ -520,6 +547,7 @@ pub fn subscription(_state: &GitDruid) -> Subscription<Message> {
             }
             _ => None,
         }),
+        window::close_events().map(Message::WindowClosed),
         Subscription::run(ticks).map(|_| Message::Poll),
     ])
 }
@@ -559,8 +587,10 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
         Message::CursorMoved(_)
             | Message::ModifiersChanged(_)
             | Message::DismissSplash
-            | Message::SplashOver
-            | Message::WindowOpened
+            | Message::SplashShown
+            | Message::ShowMain
+            | Message::MainShown(_)
+            | Message::WindowClosed(_)
             | Message::WindowResized(_)
             | Message::OpenMenu(_)
             | Message::Poll
@@ -941,23 +971,53 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             )
         }
 
-        Message::WindowOpened => match state.splash {
-            Some(Splash::Alone) => after(splash::ALONE, Message::SplashOver),
-            _ => Task::none(),
+        // Timed from the window actually appearing, not from startup: opening
+        // a window and starting the graphics backend takes a moment, and a
+        // clock started before that is mostly spent before anything is seen.
+        Message::SplashShown => after(splash::ALONE, Message::ShowMain),
+
+        Message::ShowMain => match state.main {
+            Some(_) => Task::none(),
+            None => open_main(),
         },
 
-        Message::SplashOver => {
-            if state.splash.is_none() {
+        Message::MainShown(id) => {
+            state.main = Some(id);
+
+            // The splash stays over the application for a moment before going,
+            // rather than cutting straight from one to the other.
+            match state.splash {
+                Some(_) => after(splash::OVER, Message::DismissSplash),
+                None => Task::none(),
+            }
+        }
+
+        // Clicking the splash skips the wait, which means bringing the
+        // application up now if it is not already on its way.
+        Message::DismissSplash => {
+            let Some(splash) = state.splash.take() else {
+                return Task::none();
+            };
+
+            let close = window::close(splash);
+
+            match state.main {
+                Some(_) => close,
+                None => Task::batch([open_main(), close]),
+            }
+        }
+
+        Message::WindowClosed(id) => {
+            if state.splash == Some(id) {
+                state.splash = None;
                 return Task::none();
             }
 
-            state.splash = Some(Splash::Over);
+            if state.main == Some(id) {
+                // The application's window is the application.
+                return iced::exit();
+            }
 
-            after(splash::OVER, Message::DismissSplash)
-        }
-
-        Message::DismissSplash => {
-            state.splash = None;
             Task::none()
         }
 
@@ -1267,7 +1327,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             // If the window never reported opening, the splash would sit there
             // until it was clicked. This is the way out of that.
             if state.splash.is_some() && state.started.elapsed() > STUCK_SPLASH {
-                state.splash = None;
+                return update(state, Message::DismissSplash);
             }
 
             state.poll()

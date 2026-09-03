@@ -1,16 +1,19 @@
 //! The splash screen.
 //!
-//! Not a window of its own: a second window costs a second entry in the dock
-//! and a flicker as it hands over, and buys nothing here. It runs in two
-//! phases instead — on its own with nothing drawn behind it, then over the
-//! application once that is worth showing — and dismisses itself, or goes on
-//! the first click. Settings turns it off; a splash that cannot be got past is
-//! a splash that gets resented.
+//! A window of its own, undecorated and exactly the size of the artwork. It
+//! has to be: the point of a splash is to be on screen *before* the
+//! application, and something drawn inside the application's window cannot be,
+//! because that window is already there.
+//!
+//! It opens first and alone; the application's window comes up behind it after
+//! [`ALONE`], and the splash goes [`OVER`] later. Clicking it skips the wait.
+//! Settings turns it off — a splash that cannot be got past is a splash that
+//! gets resented.
 
 use std::time::Duration;
 
 use iced::widget::{container, image, mouse_area};
-use iced::{Element, Fill};
+use iced::{Element, Fill, Size, window};
 
 use crate::app::Message;
 use crate::ui::style;
@@ -27,42 +30,41 @@ const IMAGE: &[u8] = include_bytes!("../../assets/splash.jpg");
 /// spent by the time anything appeared.
 pub const ALONE: Duration = Duration::from_secs(10);
 
-/// How long it stays once the application is drawn behind it.
+/// How long it stays once the application's window is up behind it.
 pub const OVER: Duration = Duration::from_secs(3);
 
-/// The card's size. The artwork is 1.6:1 and is drawn to fill this exactly, so
+/// The window's size. The artwork is 1.6:1 and fills the window exactly, so
 /// the two have to agree or it will be letterboxed.
 const WIDTH: f32 = 720.0;
 const HEIGHT: f32 = 450.0;
 
-/// The splash, on its own or over the window.
-///
-/// `alone` decides what surrounds the card: an opaque ground, so there is
-/// nothing behind it at all, or a scrim, so the application shows through
-/// dimmed.
-pub fn view(alone: bool) -> Element<'static, Message> {
-    let art = image(image::Handle::from_bytes(IMAGE))
-        .width(WIDTH)
-        .height(HEIGHT)
-        .content_fit(iced::ContentFit::Cover);
+/// The splash's own window: no frame, no title bar, no resize handles, and
+/// above whatever else is on screen. Exactly the size of the artwork, so the
+/// window *is* the image.
+pub fn window() -> window::Settings {
+    window::Settings {
+        size: Size::new(WIDTH, HEIGHT),
+        position: window::Position::Centered,
+        resizable: false,
+        decorations: false,
+        level: window::Level::AlwaysOnTop,
+        ..window::Settings::default()
+    }
+}
 
-    let card = container(art)
-        .width(WIDTH)
-        .height(HEIGHT)
-        .style(style::dialog);
+pub fn view() -> Element<'static, Message> {
+    let art = image(image::Handle::from_bytes(IMAGE))
+        .width(Fill)
+        .height(Fill)
+        .content_fit(iced::ContentFit::Cover);
 
     // Anywhere on it dismisses it: someone who wants to get on with it should
     // not have to find a button.
     mouse_area(
-        container(card)
-            .center_x(Fill)
-            .center_y(Fill)
+        container(art)
             .width(Fill)
             .height(Fill)
-            .style(match alone {
-                true => style::canvas,
-                false => style::scrim,
-            }),
+            .style(style::canvas),
     )
     .on_press(Message::DismissSplash)
     .on_right_press(Message::DismissSplash)
