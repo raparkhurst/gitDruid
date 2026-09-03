@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use iced::widget::{column, container, image, mouse_area, opaque, rule, stack, text};
+use iced::widget::{column, container, image, mouse_area, rule, stack, text};
 use iced::{Color, Element, Fill, Padding, Theme};
 
 use crate::app::Message;
@@ -19,7 +19,12 @@ use crate::ui::style;
 const IMAGE: &[u8] = include_bytes!("../../assets/splash.jpg");
 
 /// How long it stays without being asked to go.
-pub const DURATION: Duration = Duration::from_millis(2200);
+///
+/// Counted from the window opening rather than from startup: creating the
+/// window and starting the graphics backend takes a second or more on a cold
+/// run, and a splash whose clock began before any of that had happened was
+/// mostly over by the time it appeared.
+pub const DURATION: Duration = Duration::from_millis(3500);
 
 /// The card's size. The artwork is 1.6:1 and is drawn to fill this exactly, so
 /// the two have to agree or it will be letterboxed.
@@ -32,7 +37,7 @@ const HEIGHT: f32 = 450.0;
 const INK: Color = Color::from_rgb(0.09, 0.08, 0.07);
 const INK_SOFT: Color = Color::from_rgba(0.09, 0.08, 0.07, 0.72);
 
-pub fn view<'a>(screen: Element<'a, Message>) -> Element<'a, Message> {
+pub fn view() -> Element<'static, Message> {
     let art = image(image::Handle::from_bytes(IMAGE))
         .width(WIDTH)
         .height(HEIGHT)
@@ -59,23 +64,25 @@ pub fn view<'a>(screen: Element<'a, Message>) -> Element<'a, Message> {
     let card = container(stack![art, words])
         .width(WIDTH)
         .height(HEIGHT)
-        .clip(true)
         .style(style::dialog);
 
-    // Anywhere on the splash dismisses it, including the artwork: someone who
-    // wants to get on with it should not have to find a button.
-    let splash = mouse_area(
+    // Nothing of the application is drawn behind it. An overlay over a window
+    // that is still filling itself in flickers as the tabs arrive, and the
+    // point of a splash is to be what is on screen while that happens.
+    //
+    // Anywhere on it dismisses it, including the artwork: someone who wants to
+    // get on with it should not have to find a button.
+    mouse_area(
         container(card)
             .center_x(Fill)
             .center_y(Fill)
             .width(Fill)
             .height(Fill)
-            .style(style::scrim),
+            .style(style::canvas),
     )
     .on_press(Message::DismissSplash)
-    .on_right_press(Message::DismissSplash);
-
-    stack![screen, opaque(splash)].into()
+    .on_right_press(Message::DismissSplash)
+    .into()
 }
 
 fn ink(_theme: &Theme) -> text::Style {
@@ -85,5 +92,35 @@ fn ink(_theme: &Theme) -> text::Style {
 fn soft(_theme: &Theme) -> text::Style {
     text::Style {
         color: Some(INK_SOFT),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_artwork_can_actually_be_decoded() {
+        // The renderer draws nothing and says nothing when a decode fails, so
+        // a missing codec looks exactly like a bug in the layout. This is the
+        // check that tells the two apart.
+        let decoded = ::image::load_from_memory(IMAGE).expect("the splash should decode");
+
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (1440, 900),
+            "the card's proportions are built around this"
+        );
+    }
+
+    #[test]
+    fn the_card_matches_the_artwork_proportions() {
+        let art = 1440.0 / 900.0;
+        let card = WIDTH / HEIGHT;
+
+        assert!(
+            (art - card).abs() < 0.01,
+            "the artwork would be cropped or letterboxed: {art} against {card}"
+        );
     }
 }

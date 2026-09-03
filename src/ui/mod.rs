@@ -25,6 +25,14 @@ use crate::app::{Focus, GitDruid, Message, Prompt, PromptKind, Repo};
 const TAB_NAME: usize = 20;
 
 pub fn view(state: &GitDruid) -> Element<'_, Message> {
+    // Before anything else is built, not over the top of it. The application
+    // is not worth showing half-assembled, which is what a splash is for — and
+    // building a five-hundred-row graph behind one nobody can see through is
+    // work done for no one.
+    if state.splash {
+        return splash::view();
+    }
+
     let body: Element<'_, Message> = match state.active() {
         Some(repo) => workspace(repo),
         None if !state.opening.is_empty() => opening(state),
@@ -43,12 +51,6 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
 
     // `opaque` stops clicks reaching the window behind, which is what makes
     // this a dialog rather than a panel drawn on top of a live app.
-    // The splash sits over everything, including the dialog, because it is
-    // only ever there before anything has been opened.
-    if state.splash {
-        return splash::view(screen.into());
-    }
-
     if state.settings_open {
         return stack![screen, opaque(settings::view(state))].into();
     }
