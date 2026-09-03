@@ -14,6 +14,7 @@ use std::path::Path;
 
 use iced::widget::{
     button, column, container, opaque, pick_list, row, rule, scrollable, stack, text, text_input,
+    tooltip,
 };
 use iced::{Center, Element, Fill, Padding, Theme};
 
@@ -79,11 +80,12 @@ fn toolbar(state: &GitDruid) -> Element<'_, Message> {
 
     let mut bar = column![top].spacing(6);
 
-    // The active repository's branch and location, under its tab rather than
-    // beside it: with several tabs open there is no room for both on one line,
-    // and this line is about whichever one is in front.
+    // The second line is about whichever tab is in front: what can be done
+    // with its remote on the left, where it is on the right.
     if let Some(repo) = state.active() {
-        let mut details = row![branch_label(repo)].spacing(10).align_y(Center);
+        let mut details = row![remote_actions(repo), text("").width(Fill)]
+            .spacing(10)
+            .align_y(Center);
 
         if let Some(operation) = &repo.snapshot.pending_operation {
             details = details.push(text(format!("{operation} in progress")).size(12).style(
@@ -93,8 +95,7 @@ fn toolbar(state: &GitDruid) -> Element<'_, Message> {
             ));
         }
 
-        details = details.push(remote_actions(repo));
-        details = details.push(path_label(repo));
+        details = details.push(branch_label(repo));
 
         bar = bar.push(details);
     }
@@ -146,7 +147,21 @@ fn repo_tab(repo: &Repo, active: bool) -> Element<'_, Message> {
         .style(style::tab_close(active))
         .on_press(Message::CloseRepo(path));
 
-    chip(row![name, close], active)
+    // Two checkouts can share a directory name, and the full path left the
+    // toolbar when it moved into the settings dialog — so the tab keeps it,
+    // out of the way until it is wanted.
+    tooltip(
+        chip(row![name, close], active),
+        container(
+            text(crate::settings::shorten(repo.path()))
+                .size(10)
+                .wrapping(text::Wrapping::None),
+        )
+        .padding([4, 7])
+        .style(style::dialog),
+        tooltip::Position::Bottom,
+    )
+    .into()
 }
 
 /// A tab for a repository that is still being read. There is nothing to switch
@@ -465,33 +480,6 @@ fn branch_label(repo: &Repo) -> Element<'_, Message> {
         })
         .into()
 }
-
-/// Where the open repository actually lives. Two clones share a directory name,
-/// so the name alone does not say which checkout is on screen.
-fn path_label(repo: &Repo) -> Element<'_, Message> {
-    text(abbreviate(&repo.snapshot.path))
-        .size(11)
-        .wrapping(text::Wrapping::None)
-        .style(|theme: &Theme| text::Style {
-            color: Some(style::muted(theme)),
-        })
-        .into()
-}
-
-/// Writes a path under the home directory as `~/…`, and drops the trailing
-/// separator libgit2 puts on a working directory.
-fn abbreviate(path: &Path) -> String {
-    let shown = match std::env::var_os("HOME") {
-        Some(home) => match path.strip_prefix(home) {
-            Ok(rest) => format!("~/{}", rest.display()),
-            Err(_) => path.display().to_string(),
-        },
-        None => path.display().to_string(),
-    };
-
-    shown.trim_end_matches('/').to_owned()
-}
-
 
 fn workspace(repo: &Repo) -> Element<'_, Message> {
     row![

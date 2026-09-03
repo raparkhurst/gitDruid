@@ -54,8 +54,9 @@ tab.
   hunk at a time.
 - Writes the commit, refusing empty messages, empty commits and unresolved
   conflicts — and finishes an open merge, writing the commit with both parents.
-- Shows the branch, its path on disk, and how far ahead of and behind its
-  upstream it is.
+- Shows the branch and how far ahead of and behind its upstream it is. Which
+  checkout a tab is opens on hovering it, and in the settings dialog under
+  "This repository".
 - Configurable, in a dialog: which workflow this repository follows — a single
   branch, GitHub Flow, or git-flow — what its branches are called, the prefixes
   for features, bugfixes, hotfixes and releases, and how to authenticate to a

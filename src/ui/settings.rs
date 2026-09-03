@@ -23,9 +23,22 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
     let scope = state.settings_scope;
     let has_repo = state.active().is_some();
 
-    let body = Column::new()
+    let mut body = Column::new()
         .spacing(14)
-        .push(scope_row(scope, has_repo))
+        .push(scope_row(scope, has_repo));
+
+    // Which checkout "this repository" means. It used to sit in the toolbar,
+    // where it took a line of the window all day to answer a question that is
+    // only asked occasionally.
+    if scope == Scope::Repo
+        && let Some(repo) = state.active()
+    {
+        body = body
+            .push(rule::horizontal(1))
+            .push(repository(repo.path()));
+    }
+
+    let body = body
         .push(rule::horizontal(1))
         .push(branching(settings, scope))
         .push(rule::horizontal(1))
@@ -139,6 +152,32 @@ fn scope_row(scope: Scope, has_repo: bool) -> Element<'static, Message> {
     column![tabs, text(hint).size(10).style(muted)]
         .spacing(6)
         .into()
+}
+
+/// Where the open repository is, and a way to take the path with you.
+fn repository(path: &std::path::Path) -> Element<'static, Message> {
+    let full = path.display().to_string();
+
+    column![
+        heading("REPOSITORY"),
+        row![
+            text("Path").size(11).width(LABEL),
+            // A path has no spaces in it, so ordinary word wrapping cannot
+            // break one however much room it is given.
+            text(crate::settings::shorten(path))
+                .size(11)
+                .wrapping(text::Wrapping::WordOrGlyph)
+                .width(Fill),
+            button(text("Copy").size(11))
+                .padding([4, 10])
+                .style(style::toggle)
+                .on_press(Message::CopyText(full)),
+        ]
+        .spacing(10)
+        .align_y(iced::Top),
+    ]
+    .spacing(8)
+    .into()
 }
 
 fn branching(settings: &Settings, scope: Scope) -> Element<'_, Message> {
