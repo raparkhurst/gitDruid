@@ -120,3 +120,49 @@ pub fn default() -> Theme {
 pub fn by_name(name: &str) -> Option<Theme> {
     all().into_iter().find(|theme| theme.to_string() == name)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_palette_can_be_found_again_by_the_name_it_shows() {
+        // The name is what gets written to the settings file, so a palette
+        // whose name does not round-trip would load as the default and give
+        // no sign of why.
+        for theme in all() {
+            let name = theme.to_string();
+
+            assert_eq!(
+                by_name(&name).map(|found| found.to_string()),
+                Some(name.clone()),
+                "{name} could not be looked up again"
+            );
+        }
+    }
+
+    #[test]
+    fn the_names_are_all_different() {
+        let mut names: Vec<String> = all().iter().map(Theme::to_string).collect();
+        let count = names.len();
+
+        names.sort();
+        names.dedup();
+
+        assert_eq!(names.len(), count, "two palettes share a name: {names:?}");
+    }
+
+    #[test]
+    fn a_palette_that_is_no_longer_shipped_is_not_guessed_at() {
+        assert!(by_name("Solarized").is_none());
+        assert!(by_name("").is_none());
+    }
+
+    #[test]
+    fn the_default_is_one_of_the_offered_palettes() {
+        assert!(
+            all().iter().any(|theme| theme.to_string() == default().to_string()),
+            "the fallback has to be pickable, or it cannot be got back to"
+        );
+    }
+}

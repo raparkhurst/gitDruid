@@ -18,7 +18,10 @@ git access goes through [libgit2] in-process.
 ## How it looks
 
 Monospaced throughout, on one of five palettes: `Console` on warm near-black,
-`Dark` for something neutral, `Dracula`, `Matrix`, and `Parchment` on paper. A git client is mostly paths, hashes and diffs, things
+`Dark` for something neutral, `Dracula`, `Matrix`, and `Parchment` on paper.
+The choice is written to the global settings file as it is made — nobody picks
+a palette and then expects to confirm it — so the window opens the way it was
+left. A git client is mostly paths, hashes and diffs, things
 that want to line up, and everything in the window shares one grid because of
 it. Chrome is hairlines and flat fills rather than cards and shadows; the
 accent colour marks what can be acted on, and nothing else. `src/ui/theme.rs`
@@ -153,6 +156,10 @@ an empty box shows the value it would inherit as its placeholder — which is
 what makes "what happens if I leave this alone" answerable without looking
 anywhere else. Toggles get a third state there for the same reason: "off" and
 "whatever the global file says" are different answers.
+
+Paths to ssh keys can be typed or picked with a file browser, and are stored
+relative to `~` so a settings file copied to another machine still points at
+that machine's key.
 
 The dialog names the file it will write to, and offers to copy that path. It
 wraps at glyph level rather than at word level, because a filesystem path
