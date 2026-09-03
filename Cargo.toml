@@ -1,0 +1,25 @@
+[package]
+name = "git-druid"
+version = "0.1.0"
+edition = "2024"
+description = "A cross-platform git GUI desktop client"
+license = "MIT"
+
+[[bin]]
+name = "git-druid"
+path = "src/main.rs"
+
+[dependencies]
+# git2 ships with no transports enabled; without these there is nothing
+# for fetch, pull or push to talk to.
+git2 = { version = "0.21.0", features = ["ssh", "https"] }
+iced = { version = "0.14.0", features = ["canvas", "lazy"] }
+rfd = "0.17.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
