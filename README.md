@@ -17,8 +17,9 @@ git access goes through [libgit2] in-process.
 
 ## How it looks
 
-A splash screen on the way in: `assets/splash.jpg`, in an undecorated window of
-its own. It has to be its own window — the point of a splash is to be on screen
+A splash screen on the way in: `assets/splash.jpg` with the name, the version
+and the author over the empty left third of it, in an undecorated window of its
+own. It has to be its own window — the point of a splash is to be on screen
 *before* the application, and something drawn inside the application's window
 cannot be, because that window is already there. It opens alone, the
 application comes up behind it five seconds later, and it goes a second after

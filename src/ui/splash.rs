@@ -13,8 +13,8 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use iced::widget::{container, image, mouse_area};
-use iced::{Element, Fill, Size, window};
+use iced::widget::{column, container, image, mouse_area, rule, stack, text};
+use iced::{Color, Element, Fill, Padding, Size, Theme, window};
 
 use crate::app::Message;
 use crate::ui::style;
@@ -48,6 +48,12 @@ pub const OVER: Duration = Duration::from_secs(1);
 const WIDTH: f32 = 720.0;
 const HEIGHT: f32 = 450.0;
 
+/// The left third of the artwork is empty mist, which is where the words go.
+/// It is *light* there, so they are dark — the pale-on-dark a splash usually
+/// wants would disappear into it.
+const INK: Color = Color::from_rgb(0.09, 0.08, 0.07);
+const INK_SOFT: Color = Color::from_rgba(0.09, 0.08, 0.07, 0.75);
+
 /// The splash's own window: no frame, no title bar, no resize handles, and
 /// above whatever else is on screen. Exactly the size of the artwork, so the
 /// window *is* the image.
@@ -68,10 +74,28 @@ pub fn view() -> Element<'static, Message> {
         .height(Fill)
         .content_fit(iced::ContentFit::Cover);
 
+    let words = container(
+        column![
+            text("gitDruid").size(46).style(ink),
+            container(rule::horizontal(1))
+                .width(150)
+                .padding(Padding::default().top(6).bottom(10)),
+            text(concat!("version ", env!("CARGO_PKG_VERSION")))
+                .size(13)
+                .style(soft),
+            text("Robert Parkhurst").size(13).style(soft),
+        ]
+        .spacing(2),
+    )
+    .padding(Padding::default().left(52))
+    .width(Fill)
+    .height(Fill)
+    .align_y(iced::Center);
+
     // Anywhere on it dismisses it: someone who wants to get on with it should
     // not have to find a button.
     mouse_area(
-        container(art)
+        container(stack![art, words])
             .width(Fill)
             .height(Fill)
             .style(style::canvas),
@@ -79,6 +103,16 @@ pub fn view() -> Element<'static, Message> {
     .on_press(Message::DismissSplash)
     .on_right_press(Message::DismissSplash)
     .into()
+}
+
+fn ink(_theme: &Theme) -> text::Style {
+    text::Style { color: Some(INK) }
+}
+
+fn soft(_theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(INK_SOFT),
+    }
 }
 
 #[cfg(test)]
