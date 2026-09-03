@@ -7,6 +7,7 @@ pub mod graph;
 pub mod menu;
 pub mod refs;
 pub mod settings;
+pub mod splash;
 pub mod style;
 pub mod theme;
 
@@ -42,6 +43,12 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
 
     // `opaque` stops clicks reaching the window behind, which is what makes
     // this a dialog rather than a panel drawn on top of a live app.
+    // The splash sits over everything, including the dialog, because it is
+    // only ever there before anything has been opened.
+    if state.splash {
+        return splash::view(screen.into());
+    }
+
     if state.settings_open {
         return stack![screen, opaque(settings::view(state))].into();
     }

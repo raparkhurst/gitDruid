@@ -17,6 +17,10 @@ git access goes through [libgit2] in-process.
 
 ## How it looks
 
+A splash screen on the way in, carrying the name, the version and the author
+over `assets/splash.jpg`. It goes after a couple of seconds, or on a click, and
+**Settings → Appearance** turns it off for good.
+
 Monospaced throughout, on one of five palettes: `Console` on warm near-black,
 `Dark` for something neutral, `Dracula`, `Matrix`, and `Parchment` on paper.
 The choice is written to the global settings file as it is made — nobody picks
@@ -107,6 +111,7 @@ src/
     remote.rs   fetch, pull and push, and what they would act on
     detail.rs   what one commit from the graph changed
   settings.rs   the two configuration files, and what they mean
+  desktop.rs    adding a Linux applications-menu entry, when asked
   app.rs        state and the update loop; every git call runs off the UI thread
   ui/           rendering, and the messages the user's clicks produce
     refs.rs     the left column: branches, tags, and what can be done to them
@@ -116,6 +121,7 @@ src/
     diff.rs     the centre column, for a file from the tree or from a commit
     files.rs    the right column: the two file lists and the commit box
     settings.rs the settings dialog
+    splash.rs   the splash screen
     theme.rs    the two palettes
     style.rs    everything derived from whichever palette is active
 ```

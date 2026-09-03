@@ -48,6 +48,10 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
         body = body.push(rule::horizontal(1)).push(desktop(&menu));
     }
 
+    if scope == Scope::Global {
+        body = body.push(rule::horizontal(1)).push(appearance(settings, scope));
+    }
+
     let body = body
         .push(rule::horizontal(1))
         .push(branching(settings, scope))
@@ -192,6 +196,25 @@ fn repository(path: &std::path::Path) -> Element<'static, Message> {
         ]
         .spacing(10)
         .align_y(iced::Top),
+    ]
+    .spacing(8)
+    .into()
+}
+
+/// The handful of things that are about the window rather than about git.
+fn appearance(settings: &Settings, scope: Scope) -> Element<'_, Message> {
+    column![
+        heading("APPEARANCE"),
+        choice(
+            "Splash screen",
+            keys::SPLASH,
+            &[("Show it", "true"), ("Skip it", "false")],
+            settings,
+            scope,
+        ),
+        text("The palette is set from the toolbar, and remembered.")
+            .size(10)
+            .style(muted),
     ]
     .spacing(8)
     .into()

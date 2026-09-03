@@ -13,7 +13,11 @@ path = "src/main.rs"
 # git2 ships with no transports enabled; without these there is nothing
 # for fetch, pull or push to talk to.
 git2 = { version = "0.21.0", features = ["ssh", "https"] }
-iced = { version = "0.14.0", features = ["canvas", "lazy"] }
+iced = { version = "0.14.0", features = ["canvas", "lazy", "image-without-codecs"] }
+# The splash is the only image in the application, and it is a JPEG. iced's
+# "image" feature would pull in a decoder for every format there is; this
+# enables the one that gets used.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 rfd = "0.17.2"
 
 [features]

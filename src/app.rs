@@ -41,6 +41,8 @@ pub struct GitDruid {
     /// is open. Each open repository carries its own resolved copy.
     pub settings: Settings,
     pub settings_open: bool,
+    /// True while the splash screen is up, which is only ever at startup.
+    pub splash: bool,
     /// Where the pointer is, so a right-click can put a menu under it. iced
     /// hands out no position with a button press, so it is tracked as it moves.
     pub cursor: Point,
@@ -333,6 +335,7 @@ pub enum Message {
     Fetch,
     OpenSettings,
     CloseSettings,
+    DismissSplash,
     CursorMoved(Point),
     ModifiersChanged(keyboard::Modifiers),
     WindowResized(Size),
@@ -408,6 +411,8 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         .and_then(crate::ui::theme::by_name)
         .unwrap_or_else(crate::ui::theme::default);
 
+    let splash = settings.splash();
+
     let mut state = GitDruid {
         repos: Vec::new(),
         active: 0,
@@ -415,6 +420,7 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         activate: None,
         notice: None,
         settings,
+        splash,
         settings_open: false,
         settings_scope: Scope::Global,
         cursor: Point::ORIGIN,
@@ -449,6 +455,17 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         .cloned()
         .or(previous)
         .or_else(|| state.opening.first().cloned());
+
+    // The repositories are read while the splash is up, so the time it takes
+    // is not time added to starting: by the time it goes, the tabs are there.
+    if state.splash {
+        tasks.push(Task::perform(
+            async {
+                std::thread::sleep(crate::ui::splash::DURATION);
+            },
+            |()| Message::DismissSplash,
+        ));
+    }
 
     (state, Task::batch(tasks))
 }
@@ -525,6 +542,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
         message,
         Message::CursorMoved(_)
             | Message::ModifiersChanged(_)
+            | Message::DismissSplash
             | Message::WindowResized(_)
             | Message::OpenMenu(_)
             | Message::Poll
@@ -903,6 +921,11 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
                 async move { git::fetch(&path, &credentials) },
                 move |result| Message::Applied(wanted.clone(), result),
             )
+        }
+
+        Message::DismissSplash => {
+            state.splash = false;
+            Task::none()
         }
 
         Message::CursorMoved(position) => {

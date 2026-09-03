@@ -212,6 +212,13 @@ impl Settings {
     /// about the application, not about any one repository, and a `.gitdruid`
     /// committed to a shared checkout should not decide what a colleague sees
     /// on startup.
+    /// Whether the splash screen is shown. On by default, and off is a
+    /// setting rather than a command-line flag: the people who want to skip it
+    /// want to skip it every time.
+    pub fn splash(&self) -> bool {
+        self.flag(keys::SPLASH, true)
+    }
+
     pub fn session(&self) -> Vec<PathBuf> {
         self.global
             .values
@@ -332,6 +339,8 @@ impl Mode {
 pub mod keys {
     /// The palette, remembered so the window comes back the way it was left.
     pub const THEME: &str = "ui.theme";
+    /// Whether to show the splash screen on the way in.
+    pub const SPLASH: &str = "ui.splash";
 
     /// `simple`, `github` or `gitflow`.
     pub const FLOW_MODE: &str = "flow.mode";
