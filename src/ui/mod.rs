@@ -29,21 +29,15 @@ pub fn view(state: &GitDruid) -> Element<'_, Message> {
         None => welcome(),
     };
 
-    let mut screen = column![toolbar(state), rule::horizontal(1)];
-
-    if let Some(notice) = &state.notice {
-        screen = screen.push(notice_bar(notice));
-    }
-
-    // A question that is blocking an action belongs across the top of the
-    // window, next to whichever button raised it, not tucked into a column.
-    if let Some(repo) = state.active()
-        && let Some(prompt) = &repo.prompt
-    {
-        screen = screen.push(prompt_bar(&repo.settings, prompt));
-    }
-
-    let screen = screen.push(body).width(Fill).height(Fill);
+    let screen = column![
+        toolbar(state),
+        rule::horizontal(1),
+        status_bar(state),
+        rule::horizontal(1),
+        body,
+    ]
+    .width(Fill)
+    .height(Fill);
 
     // `opaque` stops clicks reaching the window behind, which is what makes
     // this a dialog rather than a panel drawn on top of a live app.
@@ -251,26 +245,113 @@ fn small(label: impl text::IntoFragment<'static>, message: Option<Message>) -> E
         .into()
 }
 
+/// The strip under the toolbar, which is always there.
+///
+/// Questions and results share it, and it keeps its height whether or not it
+/// has anything in it. Growing a bar into existence pushes the whole window
+/// down and then pulls it back up a moment later, which is worse than the
+/// space it saves — and it moves whatever the user was about to click.
+const STATUS_HEIGHT: f32 = 46.0;
+
+fn status_bar(state: &GitDruid) -> Element<'_, Message> {
+    let open = state.active().and_then(|repo| repo.prompt.as_ref());
+
+    let content: Element<'_, Message> = match (open, &state.notice) {
+        // A question is blocking something, so it outranks a result that is
+        // only there to be read.
+        (Some(prompt), _) => {
+            let settings = state.active().map(|repo| &repo.settings);
+
+            prompt_bar(settings, prompt)
+        }
+        (None, Some(notice)) => notice_bar(notice),
+        (None, None) => text("").into(),
+    };
+
+    container(content)
+        .height(STATUS_HEIGHT)
+        .width(Fill)
+        .padding([0, 10])
+        .center_y(STATUS_HEIGHT)
+        .style(style::panel)
+        .into()
+}
+
+/// The result of the last action, as coloured text rather than a banner.
+fn notice_bar(notice: &crate::app::Notice) -> Element<'_, Message> {
+    let is_error = notice.is_error;
+
+    row![
+        text(notice.text.clone())
+            .size(12)
+            .wrapping(text::Wrapping::WordOrGlyph)
+            .style(move |theme: &Theme| {
+                let palette = theme.extended_palette();
+
+                text::Style {
+                    color: Some(match is_error {
+                        true => palette.danger.base.color,
+                        false => palette.success.base.color,
+                    }),
+                }
+            })
+            .width(Fill),
+        button(text("✕").size(11))
+            .padding([2, 8])
+            .style(style::toggle)
+            .on_press(Message::DismissNotice),
+    ]
+    .spacing(10)
+    .align_y(Center)
+    .into()
+}
+
 /// The bar that asks for a name, or for a yes.
 fn prompt_bar<'a>(
-    config: &'a crate::settings::Settings,
+    config: Option<&'a crate::settings::Settings>,
     prompt: &'a Prompt,
 ) -> Element<'a, Message> {
-    // The question sits at the left; the spacer pushes the answer to the right
-    // edge, where the eye is already going for the buttons.
-    let mut line = row![text(question(prompt)).size(12), text("").width(Fill)]
-        .spacing(10)
-        .align_y(Center);
+    let mut line = row![
+        text(question(prompt))
+            .size(12)
+            .wrapping(text::Wrapping::None),
+    ]
+    .spacing(10)
+    .align_y(Center);
+
+    // The sort of branch changes both its name and where it starts, so the
+    // choice belongs beside the box the name is typed into.
+    let picker = match prompt.kind {
+        PromptKind::NewBranch => {
+            config.and_then(|config| settings::flow_picker(config, prompt.flow))
+        }
+        _ => None,
+    };
+
+    if let Some(picker) = picker {
+        line = line.push(picker);
+    }
 
     if prompt.kind.needs_name() {
         line = line.push(
             text_input(placeholder(prompt.kind), &prompt.value)
                 .size(12)
-                .padding([4, 6])
-                .width(260)
+                .padding([3, 6])
+                .width(220)
                 .style(style::input)
                 .on_input(Message::PromptChanged)
                 .on_submit(Message::PromptSubmit),
+        );
+    }
+
+    if let Some(config) = config
+        && let Some(preview) = settings::flow_preview(config, prompt)
+    {
+        line = line.push(
+            text(preview)
+                .size(10)
+                .style(muted)
+                .wrapping(text::Wrapping::None),
         );
     }
 
@@ -289,32 +370,15 @@ fn prompt_bar<'a>(
         confirm.style(style::primary).into()
     };
 
-    let line = line.push(confirm).push(
-        button(text("Cancel").size(11))
-            .padding([4, 12])
-            .style(style::toggle)
-            .on_press(Message::PromptCancel),
-    );
-
-    // Which sort of branch this is changes both its name and where it starts,
-    // so the choice belongs with the box the name is typed into.
-    let body: Element<'_, Message> = match prompt.kind {
-        PromptKind::NewBranch => match settings::flow_picker(config, prompt.flow, &prompt.value) {
-            Some(picker) => column![line, picker].spacing(6).into(),
-            None => line.into(),
-        },
-        _ => line.into(),
-    };
-
-    container(
-        container(body)
-            .padding([7, 10])
-            .width(Fill)
-            .style(style::prompt),
-    )
-    .padding([6, 10])
-    .width(Fill)
-    .into()
+    line.push(text("").width(Fill))
+        .push(confirm)
+        .push(
+            button(text("Cancel").size(11))
+                .padding([4, 12])
+                .style(style::toggle)
+                .on_press(Message::PromptCancel),
+        )
+        .into()
 }
 
 fn question(prompt: &Prompt) -> String {
@@ -428,26 +492,6 @@ fn abbreviate(path: &Path) -> String {
     shown.trim_end_matches('/').to_owned()
 }
 
-fn notice_bar(notice: &crate::app::Notice) -> Element<'_, Message> {
-    let dismiss = button(text("✕").size(12))
-        .padding([2, 8])
-        .style(style::toggle)
-        .on_press(Message::DismissNotice);
-
-    container(
-        container(
-            row![text(notice.text.clone()).size(12).width(Fill), dismiss]
-                .spacing(10)
-                .align_y(Center),
-        )
-        .padding([6, 10])
-        .width(Fill)
-        .style(style::notice(notice.is_error)),
-    )
-    .padding([6, 10])
-    .width(Fill)
-    .into()
-}
 
 fn workspace(repo: &Repo) -> Element<'_, Message> {
     row![

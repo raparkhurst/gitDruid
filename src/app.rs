@@ -386,8 +386,13 @@ pub enum Message {
 pub fn boot() -> (GitDruid, Task<Message>) {
     let arguments: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
 
+    // With nothing named and nothing remembered, the directory gitDruid was
+    // launched from is the obvious thing to open.
     let starts: Vec<PathBuf> = match arguments.is_empty() {
-        true => std::env::current_dir().into_iter().collect(),
+        true => match settings::load(None).session().is_empty() {
+            true => std::env::current_dir().into_iter().collect(),
+            false => Vec::new(),
+        },
         false => arguments,
     };
 
@@ -417,15 +422,30 @@ pub fn boot() -> (GitDruid, Task<Message>) {
         theme,
     };
 
-    let tasks: Vec<Task<Message>> = starts
+    // The tabs that were open last time come back first, then whatever was
+    // asked for on the command line — `open` switches to a repository already
+    // there rather than opening it twice, so naming one of them just brings it
+    // to the front.
+    let remembered = state.settings.session();
+    let previous = state.settings.active_repo();
+
+    let mut tasks: Vec<Task<Message>> = remembered
         .iter()
         .filter_map(|start| git::discover(start))
         .map(|root| state.open(root))
         .collect();
 
-    // Several arguments open several tabs, and the first one named is the one
-    // to look at — not whichever git happened to finish reading first.
-    state.activate = state.opening.first().cloned();
+    let named: Vec<PathBuf> = starts.iter().filter_map(|start| git::discover(start)).collect();
+
+    tasks.extend(named.iter().map(|root| state.open(root.clone())));
+
+    // A repository named on the command line is what to look at; failing
+    // that, whichever tab was in front last time.
+    state.activate = named
+        .first()
+        .cloned()
+        .or(previous)
+        .or_else(|| state.opening.first().cloned());
 
     (state, Task::batch(tasks))
 }
@@ -542,6 +562,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
             };
 
             state.active = index;
+            state.remember_session();
 
             // Whatever changed while this tab was in the background should be
             // on screen by the time it has finished being looked at.
@@ -563,6 +584,7 @@ pub fn update(state: &mut GitDruid, message: Message) -> Task<Message> {
 
             // Keep the tab to the left, which is where the eye already is.
             state.active = state.active.min(state.repos.len().saturating_sub(1));
+            state.remember_session();
 
             Task::none()
         }
@@ -1302,6 +1324,8 @@ impl GitDruid {
                 if self.activate.as_deref() == Some(path) {
                     self.activate = None;
                 }
+
+                self.remember_session();
             }
         }
 
@@ -1599,6 +1623,30 @@ impl GitDruid {
         }
     }
 
+    /// Writes the open tabs to the global settings, so they come back.
+    ///
+    /// Only repositories that actually opened are recorded: one still being
+    /// read might turn out not to be a repository at all, and remembering it
+    /// would make that failure repeat on every launch.
+    fn remember_session(&mut self) {
+        let open: Vec<PathBuf> = self.repos.iter().map(|repo| repo.path().to_path_buf()).collect();
+        let active = self.active().map(|repo| repo.path().display().to_string());
+
+        self.settings
+            .global
+            .set_list(settings::keys::SESSION_PREFIX, &open);
+
+        self.settings
+            .global
+            .set(settings::keys::SESSION_ACTIVE, active.as_deref().unwrap_or(""));
+
+        for repo in &mut self.repos {
+            repo.settings.global = self.settings.global.clone();
+        }
+
+        self.write_global();
+    }
+
     /// Sets a global value and writes it out, without a banner.
     ///
     /// For settings that are their own confirmation — the palette changes as
@@ -1613,6 +1661,10 @@ impl GitDruid {
             repo.settings.global.set(key, value);
         }
 
+        self.write_global();
+    }
+
+    fn write_global(&mut self) {
         let settings = Settings {
             global: self.settings.global.clone(),
             repo: settings::Layer::default(),

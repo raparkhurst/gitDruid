@@ -83,6 +83,22 @@ impl Layer {
         self.values.is_empty()
     }
 
+    /// Replaces the whole numbered list under `prefix`.
+    ///
+    /// Written as one operation because a list that shrank would otherwise
+    /// leave its tail behind — closing a tab has to remove an entry, not just
+    /// stop writing one.
+    pub fn set_list(&mut self, prefix: &str, values: &[PathBuf]) {
+        self.values.retain(|key, _| !key.starts_with(prefix));
+
+        for (index, value) in values.iter().enumerate() {
+            self.values.insert(
+                format!("{prefix}{:02}", index + 1),
+                value.display().to_string(),
+            );
+        }
+    }
+
     /// Parses git-config-shaped text. Unknown keys are kept as they are, so
     /// hand-editing a file gitDruid does not fully understand loses nothing.
     pub fn parse(text: &str) -> Self {
@@ -189,6 +205,26 @@ impl Settings {
         self.get(key).filter(|value| !value.is_empty()).unwrap_or(fallback)
     }
 
+    /// The repositories that were open when gitDruid was last closed, in the
+    /// order their tabs were in.
+    ///
+    /// Read from the global layer alone: which windows were open is a fact
+    /// about the application, not about any one repository, and a `.gitdruid`
+    /// committed to a shared checkout should not decide what a colleague sees
+    /// on startup.
+    pub fn session(&self) -> Vec<PathBuf> {
+        self.global
+            .values
+            .iter()
+            .filter(|(key, _)| key.starts_with(keys::SESSION_PREFIX))
+            .map(|(_, value)| PathBuf::from(value))
+            .collect()
+    }
+
+    pub fn active_repo(&self) -> Option<PathBuf> {
+        self.global.get(keys::SESSION_ACTIVE).map(PathBuf::from)
+    }
+
     pub fn flow(&self) -> Flow {
         Flow {
             enabled: self.flag(keys::FLOW_ENABLED, false),
@@ -225,6 +261,13 @@ pub mod keys {
     pub const PREFIX_BUGFIX: &str = "prefix.bugfix";
     pub const PREFIX_HOTFIX: &str = "prefix.hotfix";
     pub const PREFIX_RELEASE: &str = "prefix.release";
+
+    /// One key per open tab, numbered so they come back in the order they
+    /// were in. Zero-padded because the values are held in a sorted map, and
+    /// `repo10` sorts before `repo2` without it.
+    pub const SESSION_PREFIX: &str = "session.repo";
+    /// The tab that was in front.
+    pub const SESSION_ACTIVE: &str = "session.active";
 
     pub const SSH_KEY: &str = "credentials.sshkey";
     pub const SSH_PUBLIC_KEY: &str = "credentials.sshpublickey";
@@ -443,6 +486,139 @@ fn expand_home(value: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A settings file in the shape gitDruid actually writes.
+    const REAL: &str = "\
+# gitDruid settings
+
+[credentials]
+\tsshkey = ~/.ssh/id_rsa
+
+[session]
+\tactive = /Users/someone/projects/api/
+\trepo01 = /Users/someone/projects/api/
+\trepo02 = /Users/someone/projects/web/
+
+[ui]
+\ttheme = Dracula
+";
+
+    #[test]
+    fn a_written_file_reads_back_as_everything_it_holds() {
+        let settings = Settings {
+            global: Layer::parse(REAL),
+            repo: Layer::default(),
+        };
+
+        // The palette, which is looked up before the window is drawn.
+        assert_eq!(settings.get(keys::THEME), Some("Dracula"));
+
+        // The tabs, in order, and which was in front.
+        assert_eq!(
+            settings.session(),
+            vec![
+                PathBuf::from("/Users/someone/projects/api/"),
+                PathBuf::from("/Users/someone/projects/web/"),
+            ]
+        );
+        assert_eq!(
+            settings.active_repo(),
+            Some(PathBuf::from("/Users/someone/projects/api/"))
+        );
+
+        // And the key, expanded from the short form it is stored in.
+        assert_eq!(
+            settings.credentials().ssh_key,
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ssh/id_rsa"))
+        );
+    }
+
+    #[test]
+    fn the_active_tab_is_not_mistaken_for_one_of_the_tabs() {
+        let settings = Settings {
+            global: Layer::parse(REAL),
+            repo: Layer::default(),
+        };
+
+        // `session.active` starts with `session.` but is not a `session.repo`
+        // key, and counting it would open the same repository twice.
+        assert_eq!(settings.session().len(), 2);
+    }
+
+    #[test]
+    fn open_tabs_survive_being_written_and_read_back() {
+        let open = vec![
+            PathBuf::from("/one"),
+            PathBuf::from("/two"),
+            PathBuf::from("/three"),
+        ];
+
+        let mut global = Layer::default();
+        global.set_list(keys::SESSION_PREFIX, &open);
+        global.set(keys::SESSION_ACTIVE, "/two");
+
+        let settings = Settings {
+            global: Layer::parse(&global.render()),
+            repo: Layer::default(),
+        };
+
+        assert_eq!(settings.session(), open, "and in the same order");
+        assert_eq!(settings.active_repo(), Some(PathBuf::from("/two")));
+    }
+
+    #[test]
+    fn a_shorter_list_of_tabs_does_not_leave_a_tail() {
+        let mut layer = Layer::default();
+
+        layer.set_list(
+            keys::SESSION_PREFIX,
+            &[PathBuf::from("/one"), PathBuf::from("/two")],
+        );
+        layer.set_list(keys::SESSION_PREFIX, &[PathBuf::from("/one")]);
+
+        let settings = Settings {
+            global: layer,
+            repo: Layer::default(),
+        };
+
+        assert_eq!(
+            settings.session(),
+            vec![PathBuf::from("/one")],
+            "closing a tab has to remove its entry, not just stop writing it"
+        );
+    }
+
+    #[test]
+    fn more_than_nine_tabs_still_come_back_in_order() {
+        let open: Vec<PathBuf> = (1..=12).map(|n| PathBuf::from(format!("/repo{n}"))).collect();
+
+        let mut layer = Layer::default();
+        layer.set_list(keys::SESSION_PREFIX, &open);
+
+        let settings = Settings {
+            global: Layer::parse(&layer.render()),
+            repo: Layer::default(),
+        };
+
+        assert_eq!(
+            settings.session(),
+            open,
+            "the numbering is padded so a sorted map keeps the order"
+        );
+    }
+
+    #[test]
+    fn a_repository_file_cannot_decide_what_tabs_open() {
+        let settings = Settings {
+            global: Layer::default(),
+            repo: Layer::parse("[session]\n repo01 = /somewhere\n"),
+        };
+
+        assert!(
+            settings.session().is_empty(),
+            "a .gitdruid committed to a shared checkout must not open tabs"
+        );
+    }
 
     #[test]
     fn a_home_path_round_trips_through_the_short_form() {

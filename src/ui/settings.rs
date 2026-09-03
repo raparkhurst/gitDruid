@@ -7,9 +7,9 @@
 //! else.
 
 use iced::widget::{Column, button, column, container, row, rule, scrollable, text, text_input};
-use iced::{Center, Element, Fill, Padding, Theme};
+use iced::{Center, Element, Fill, Theme};
 
-use crate::app::{GitDruid, Message};
+use crate::app::{GitDruid, Message, Prompt, PromptKind};
 use crate::settings::{Kind, Scope, Settings, keys};
 use crate::ui::style;
 
@@ -367,15 +367,12 @@ fn muted(theme: &Theme) -> text::Style {
     }
 }
 
-/// The row of branch sorts in the new-branch prompt, and what it would make.
-pub fn flow_picker<'a>(
-    settings: &'a Settings,
-    chosen: Kind,
-    typed: &'a str,
-) -> Option<Element<'a, Message>> {
-    let flow = settings.flow();
-
-    if !flow.enabled {
+/// The row of branch sorts, for the new-branch prompt.
+///
+/// Absent without git-flow: a repository branching everything off one line has
+/// no sorts to choose between.
+pub fn flow_picker(settings: &Settings, chosen: Kind) -> Option<Element<'static, Message>> {
+    if !settings.flow().enabled {
         return None;
     }
 
@@ -390,25 +387,37 @@ pub fn flow_picker<'a>(
         );
     }
 
-    let preview = match typed.trim().is_empty() {
-        true => format!("from {}", flow.start_point(chosen)),
-        false => format!(
-            "{} from {}",
-            flow.branch_name(chosen, typed),
-            flow.start_point(chosen)
-        ),
-    };
+    Some(kinds.into())
+}
 
-    Some(
-        column![
-            kinds,
-            text(preview)
-                .size(10)
-                .style(muted)
-                .wrapping(text::Wrapping::None),
-        ]
-        .spacing(4)
-        .padding(Padding::default().top(2))
-        .into(),
-    )
+/// What the open prompt would actually do, in the prompt's own words.
+///
+/// The name typed into the box is not the name that gets created — a prefix
+/// goes on the front of it, and where it starts depends on its sort — so the
+/// answer is shown rather than left to be worked out.
+pub fn flow_preview(settings: &Settings, prompt: &Prompt) -> Option<String> {
+    if prompt.kind != PromptKind::NewBranch {
+        return None;
+    }
+
+    let flow = settings.flow();
+
+    if !flow.enabled {
+        return None;
+    }
+
+    // A commit picked out of the graph is where this starts, whatever the
+    // workflow would otherwise have said.
+    let start = prompt
+        .at
+        .clone()
+        .unwrap_or_else(|| flow.start_point(prompt.flow).to_owned());
+
+    Some(match prompt.value.trim().is_empty() {
+        true => format!("→ from {start}"),
+        false => format!(
+            "→ {} from {start}",
+            flow.branch_name(prompt.flow, &prompt.value)
+        ),
+    })
 }

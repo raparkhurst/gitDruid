@@ -66,6 +66,7 @@ tab.
   or its folder; discarding unstaged changes; cherry-picking or reverting a
   commit; copying its id; and the branch and tag actions, without going via the
   sidebar.
+- Reopens the repositories that were open last time, in the same tab order.
 - Fetches, pulls and pushes. The buttons carry the counts — `Pull ↓2`,
   `Push ↑1` — so they say both what they do and why they are worth pressing.
   A first push sets the branch's upstream, the way `git push -u` does.
@@ -167,6 +168,15 @@ contains no spaces and ordinary wrapping cannot break one.
 
 gitDruid does not store passphrases. A key that has one belongs in the ssh
 agent, which is tried after any key named in the settings.
+
+### The status strip
+
+Questions and results share one strip under the toolbar, and it keeps its
+height whether or not it has anything in it. Growing a bar into existence
+pushes the whole window down and pulls it back up a moment later, which is
+worse than the space it saves — and it moves whatever the user was about to
+click. A question outranks a result there, because a question is blocking
+something and a result is only there to be read.
 
 ### Selecting several files
 
