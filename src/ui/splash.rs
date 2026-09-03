@@ -38,10 +38,10 @@ static ARTWORK: LazyLock<image::Handle> = LazyLock::new(|| image::Handle::from_b
 /// window and starting the graphics backend takes a second or more on a cold
 /// run, and a clock that began before any of that had happened was mostly
 /// spent by the time anything appeared.
-pub const ALONE: Duration = Duration::from_secs(10);
+pub const ALONE: Duration = Duration::from_secs(5);
 
 /// How long it stays once the application's window is up behind it.
-pub const OVER: Duration = Duration::from_secs(3);
+pub const OVER: Duration = Duration::from_secs(1);
 
 /// The window's size. The artwork is 1.6:1 and fills the window exactly, so
 /// the two have to agree or it will be letterboxed.

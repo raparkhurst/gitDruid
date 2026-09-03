@@ -75,10 +75,10 @@ pub struct GitDruid {
 /// make itself — an editor saving a file, or `git add` from a terminal.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
-/// How long to leave a splash that nothing has dismissed before assuming the
-/// window never announced itself and taking it down anyway. Comfortably longer
-/// than the two phases together, or it would cut them short.
-const STUCK_SPLASH: Duration = Duration::from_secs(40);
+/// How long to leave a splash that nothing has dismissed before assuming
+/// something went wrong and taking it down anyway. Comfortably longer than the
+/// two phases together, or it would cut them short.
+const STUCK_SPLASH: Duration = Duration::from_secs(20);
 
 pub struct Repo {
     pub snapshot: git::Snapshot,
